@@ -107,7 +107,7 @@ wire [31:0] alu_result ;
 wire [31:0] mem_result;
 wire [31:0] final_result;
 
-reg [127:0] DE;
+reg [63:0] DE;
 reg [179:0] EX;
 reg [135:0] MEM;
 reg [101:0]  WB;
@@ -115,14 +115,13 @@ wire [31:0] de_inst;
 wire [31:0] rdata1;
 wire [31:0] rdata2;
 
-wire i_inst_b;
-wire i_inst_beq;
-wire i_inst_bl;
-wire i_inst_bne;
-wire i_inst_jirl;
-wire i_inst_st_w;
+reg de_readygo;
+reg ex_readygo;
+reg mem_readygo;
+reg wb_readygo;
 
-assign de_inst = DE;
+
+assign de_inst = DE[31:0];
 
 
 assign seq_pc       = pc+3'h4;
@@ -152,8 +151,8 @@ assign rk   = de_inst[14:10];
 
 assign i12  = de_inst[21:10];
 assign i20  = de_inst[24: 5];
-assign i16  = inst[25:10];
-assign i26  = {inst[ 9: 0], inst[25:10]};
+assign i16  = de_inst[25:10];
+assign i26  = {de_inst[ 9: 0], de_inst[25:10]};
 
 decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
@@ -199,7 +198,7 @@ assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
 assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w;
 assign need_si16  =  inst_jirl | inst_beq | inst_bne;
 assign need_si20  =  inst_lu12i_w;
-assign need_si26  =  i_inst_b | i_inst_bl;
+assign need_si26  =  inst_b | inst_bl;
 assign src2_is_4  =  inst_jirl | inst_bl;
 
 assign imm = src2_is_4 ? 32'h4                      :
@@ -211,7 +210,7 @@ assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :
 
 assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};
 
-assign src_reg_is_rd = i_inst_beq | i_inst_bne | i_inst_st_w;
+assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w;
 
 assign src1_is_pc    = inst_jirl | inst_bl;
 
@@ -231,8 +230,8 @@ assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b;
 assign mem_we        = inst_st_w;
 assign dest          = dst_is_r1 ? 5'd1 : rd;
 
-assign rf_raddr1 = inst[ 9: 5];
-assign rf_raddr2 = src_reg_is_rd ? inst[ 4: 0] :inst[ 14: 10];
+assign rf_raddr1 = rj;
+assign rf_raddr2 = src_reg_is_rd ? rd :rk ;
 regfile u_regfile(
     .clk    (clk      ),
     .raddr1 (rf_raddr1),
@@ -246,16 +245,18 @@ regfile u_regfile(
 assign rdata1 = (rf_we&&(rf_waddr == rf_raddr1)&&(rf_raddr1!=5'b0))?rf_wdata:rf_rdata1;
 assign rdata2 = (rf_we&&(rf_waddr == rf_raddr2)&&(rf_raddr2!=5'b0))?rf_wdata:rf_rdata2;
 
-assign rj_value  = DE[95:64];
-assign rkd_value = DE[127:96];
+assign rj_value  = rdata1;
+assign rkd_value = rdata2;
 
 assign rj_eq_rd = (rdata1 == rdata2);
-assign br_taken =  i_inst_beq  &&  rj_eq_rd
-                   || i_inst_bne  && !rj_eq_rd
-                   || i_inst_jirl
-                   || i_inst_bl
-                   || i_inst_b;
-assign br_target = (i_inst_beq || i_inst_bne || i_inst_bl || i_inst_b) ? (pc + br_offs) :
+assign br_taken =  (~de_readygo)?
+                    1'b0    :
+                    inst_beq  &&  rj_eq_rd
+                   || inst_bne  && !rj_eq_rd
+                   || inst_jirl
+                   || inst_bl
+                   || inst_b;
+assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (DE[63:32] + br_offs) :
                                                    /*inst_jirl*/ (rdata1 + jirl_offs);
 
 assign alu_src1 = src1_is_pc  ? DE[63:32] : rj_value;
@@ -290,9 +291,18 @@ assign debug_wb_rf_wdata = WB[69:38];
 always@(posedge clk)
 begin
     if(reset)
-        DE <= {64'b0,pc,32'b0};
+        DE <= {pc,32'b0};
     else
-        DE <= {rdata2,rdata1, pc,inst};
+    begin
+        if(~br_taken)
+        begin
+            DE <= {pc,inst};
+        end
+        else
+        begin
+            DE<=DE;
+        end
+    end
 end
 
 always@(posedge clk)
@@ -305,10 +315,17 @@ begin
     end
     else
     begin
+        if(~br_taken)
+        begin
         EX[31:0] <= DE[31:0];
         EX[115:32] <= {alu_src2,alu_src1,alu_op,mem_we,res_from_mem,dest,gr_we};
         EX[147:116] <= DE[63:32];
         EX[179:148] <= rkd_value;
+        end
+        else
+        begin
+        EX[179:0] <= 180'b0;
+        end
     end
 end
 
@@ -342,11 +359,19 @@ end
 assign data_sram_en =1'b1;
 assign inst_sram_en =1'b1;
 
-assign i_inst_beq = inst[31:26] == 6'b010110;
-assign i_inst_bne = inst[31:26] == 6'b010111;
-assign i_inst_jirl = inst[31:26] == 6'b010011;
-assign i_inst_bl = inst[31:26] == 6'b010101;
-assign i_inst_b = inst[31:26] == 6'b010100;
-assign i_inst_st_w = inst[31:22]==10'b0010100110;
+always@(posedge clk)
+begin
+    ex_readygo <=1'b1;
+    mem_readygo <=1'b1;
+    wb_readygo <=1'b1;
+end
+
+always@(posedge clk)
+begin
+    if(br_taken)
+        de_readygo <= 1'b0;
+    else 
+        de_readygo <= 1'b1;
+end
 
 endmodule
