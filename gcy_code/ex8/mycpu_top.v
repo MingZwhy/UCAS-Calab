@@ -19,10 +19,12 @@ module mycpu_top(
     output wire [ 4:0] debug_wb_rf_wnum,
     output wire [31:0] debug_wb_rf_wdata
 );
-wire         reset;
-assign reset = ~resetn;
-//always @(posedge clk) 
- //   reset <= ~resetn;
+reg         reset;
+//assign reset = ~resetn;
+always @(posedge clk) 
+    begin
+        reset <= ~resetn;
+        end
 
 wire [31:0] seq_pc;
 wire [31:0] nextpc;
@@ -130,8 +132,8 @@ assign seq_pc       = pc+3'h4;
 assign nextpc       = reset?pc+3'h4 : isadv? pc : br_taken ? br_target : seq_pc;
 
 always @(posedge clk) begin
-    if (reset) begin
-        pc <= 32'h1c000000; 
+    if (~resetn) begin
+        pc <= 32'h1bfffffc; 
     end
     else 
         pc <= nextpc;
