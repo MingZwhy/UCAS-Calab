@@ -1,4 +1,4 @@
-`define WIDTH_BR_BUS       34
+`define WIDTH_BR_BUS       33
 `define WIDTH_FS_TO_DS_BUS 64
 `define WIDTH_DS_TO_ES_BUS 150
 `define WIDTH_ES_TO_MS_BUS 71
@@ -6,13 +6,6 @@
 `define WIDTH_WS_TO_DS_BUS 38
 `define WIDTH_ES_TO_DS_BUS 6
 `define WIDTH_MS_TO_DS_BUS 6
-/*
-`include "stage1_IF.v"
-`include "stage2_ID.v"
-`include "stage3_EX.v"
-`include "stage4_MEM.v"
-`include "stage5_WB.v"
-*/
 
 module mycpu_top(
     input  wire        clk,
@@ -57,6 +50,23 @@ wire [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus;
 wire [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus;
 
 /*---------------------------FETCH--------------------------*/
+/*
+module stage1_IF(
+    input clk,
+    input reset,
+    input ds_allow_in,
+    input [`WIDTH_BR_BUS-1:0] br_bus,
+    output fs_to_ds_valid,
+    output [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
+
+    output inst_sram_en,
+    output [3:0] inst_sram_wen,
+    output [31:0] inst_sram_addr,
+    output [31:0] inst_sram_wdata,
+
+    input [31:0] inst_sram_rdata
+);
+*/
 
 stage1_IF fetch(
     .clk                (clk),
@@ -76,6 +86,28 @@ stage1_IF fetch(
 
 
 /*---------------------------DECODE--------------------------*/
+/*
+module stage2_ID(
+    input clk,
+    input reset,
+
+    input es_allow_in,
+    output ds_allow_in,
+
+    input fs_to_ds_valid,
+    output ds_to_es_valid, 
+
+    input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
+    output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
+
+    //ws_to_ds_bus 承载 寄存器的写信号，写地�?????与写数据
+    //从wback阶段 送来 decode阶段 
+    input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
+    //br_bus 承载 br_taken �????? br_target 
+    //从decode阶段 送往 fetch阶段
+    output [`WIDTH_BR_BUS-1:0] br_bus,
+);
+*/
 
 stage2_ID decode(
     .clk                (clk),
@@ -101,6 +133,26 @@ stage2_ID decode(
 
 
 /*---------------------------EXCUTE-------------------------*/
+/*
+module stage3_EX(
+    input clk,
+    input reset,
+
+    input ms_allow_in,
+    output es_allow_in,
+
+    input ds_to_es_valid,
+    output es_to_ms_valid,
+
+    input [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
+    output [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
+
+    output data_sram_en,
+    output [3:0]data_sram_wen,
+    output [31:0] data_sram_addr,
+    output [31:0] data_sram_wdata
+);
+*/
 
 stage3_EX ex(
     .clk                (clk),
@@ -125,6 +177,23 @@ stage3_EX ex(
 /*----------------------------------------------------------*/
 
 /*---------------------------MEM----------------------------*/
+/*
+module stage4_MEM(
+    input clk,
+    input reset,
+
+    input ws_allow_in,
+    output ms_allow_in,
+
+    input es_to_ms_valid,
+    output ms_to_ws_valid,
+
+    input [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
+    output [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
+    
+    input [31:0] data_sram_rdata
+);
+*/
 
 stage4_MEM mem(
     .clk                (clk),
@@ -146,6 +215,26 @@ stage4_MEM mem(
 /*----------------------------------------------------------*/
 
 /*---------------------------WBACK--------------------------*/
+/*
+module stage5_WB(
+    input clk,
+    input reset,
+
+    //no allow in
+    output ws_allow_in,
+
+    input ms_to_ws_valid,
+    //no to valid
+
+    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
+    output [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
+
+    output [31:0] debug_wb_pc     ,
+    output [ 3:0] debug_wb_rf_we ,
+    output [ 4:0] debug_wb_rf_wnum,
+    output [31:0] debug_wb_rf_wdata
+);
+*/
 
 stage5_WB wb(
     .clk                (clk),
@@ -167,4 +256,3 @@ stage5_WB wb(
 /*----------------------------------------------------------*/
 
 endmodule
-
