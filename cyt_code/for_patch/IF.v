@@ -25,27 +25,33 @@ module stage1_IF(
 
 /*--------------------------------valid-----------------------------*/
 
-reg fs_valid;    //valid信号表示这一级流水缓存是否有�?????
+reg fs_valid;    //valid信号表示这一级流水缓存是否有�??????
 
 //对fs_valid来说，只要取消reset，相当去前一阶段对它发来的valid信号
 wire pre_if_to_fs_valid;
 assign pre_if_to_fs_valid = !reset;
 
-//fs_valid拉高的另�?????个条件是下一阶段的allow_in信号—�?�ds_allow_in
+//fs_valid拉高的另�??????个条件是下一阶段的allow_in信号—�?�ds_allow_in
 wire fs_ready_go;
 
 always @(posedge clk)
     begin
         if(reset)
             fs_valid <= 1'b0;
-        else if(ds_allow_in && fs_ready_go)
+        else if(fs_allow_in)
             fs_valid <= pre_if_to_fs_valid;
+        /*
+        else if(br_taken_cancel)
+            fs_valid <= 1'b0;
+        */
     end
 
 //将output-fs_to_ds_valid与reg fs_valid连接
-//考虑到后序可能一个clk完成不了FETCH，先增设fs_ready信号并始终拉�?????
+//考虑到后序可能一个clk完成不了FETCH，先增设fs_ready信号并始终拉�??????
 assign fs_ready_go = 1'b1;
-assign fs_to_ds_valid = fs_valid;
+wire fs_allow_in;
+assign fs_allow_in = !fs_valid || fs_ready_go && ds_allow_in;
+assign fs_to_ds_valid = fs_valid && fs_ready_go;
 
 /*----------------------------------------------------------------*/
 
@@ -53,14 +59,15 @@ assign fs_to_ds_valid = fs_valid;
 
 wire [31:0] br_target;  //跳转地址
 wire br_taken;          //是否跳转
+wire br_taken_cancel;
 //br_taken和br_target来自br_bus
-assign {br_taken,br_target} = br_bus;
+assign {br_taken_cancel,br_taken,br_target} = br_bus;
 
 reg [31:0] fetch_pc; 
 
 wire [31:0] seq_pc;     //顺序取址
 assign seq_pc = fetch_pc + 4;
-wire [31:0] next_pc;    //nextpc来自seq或br,是�?�至ram的pc�?????
+wire [31:0] next_pc;    //nextpc来自seq或br,是�?�至ram的pc�??????
 assign next_pc = br_taken? br_target : seq_pc;
    
 always @(posedge clk)
@@ -73,14 +80,14 @@ always @(posedge clk)
 
 /*----------------------------------------------------------------*/
 
-/*----------------------------与inst_ram的接�?????---------------------*/
+/*----------------------------与inst_ram的接�??????---------------------*/
 
 /*
-    output inst_sram_en,                //读使�?????
-    output [3:0] inst_sram_wen,         //写使�?????
-    output [31:0] inst_sram_addr,       //读地�?????
-    output [31:0] inst_sram_wdata,      //写数�?????
-    input [31:0] inst_sram_rdata        //读到的数�?????-inst
+    output inst_sram_en,                //读使�??????
+    output [3:0] inst_sram_wen,         //写使�??????
+    output [31:0] inst_sram_addr,       //读地�??????
+    output [31:0] inst_sram_wdata,      //写数�??????
+    input [31:0] inst_sram_rdata        //读到的数�??????-inst
 */
 
 assign inst_sram_en = pre_if_to_fs_valid && ds_allow_in;
@@ -92,7 +99,7 @@ assign inst_sram_wdata = 32'b0;
 
 /*----------------------------发�?�fs_to_ds_bus------------------------*/
 //要�?�往decode阶段的数据有PC与INST
-//pc与inst�?????32位，因此fs_to_ds_bus�?????64�?????
+//pc与inst�??????32位，因此fs_to_ds_bus�??????64�??????
 wire [31:0] fetch_inst;
 assign fetch_inst = inst_sram_rdata;
 assign fs_to_ds_bus = {fetch_inst,fetch_pc};
