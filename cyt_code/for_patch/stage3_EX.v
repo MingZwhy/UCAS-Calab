@@ -32,14 +32,14 @@ module stage3_EX(
 assign ds_to_es_bus[31:   0] = ds_pc;        //pc����fetch��???��execute
 assign ds_to_es_bus[63:  32] = rj_value;  //reg_file������data1
 assign ds_to_es_bus[95:  64] = rkd_value; //reg_file������data2
-assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����?????
-assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����???
+assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����????
+assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����??
 assign ds_to_es_bus[133:133] = gr_we;     //�Ƿ�д�Ĵ���
 assign ds_to_es_bus[134:134] = mem_we;    //�Ƿ�д��??
 assign ds_to_es_bus[146:135] = alu_op;    //alu����??
 assign ds_to_es_bus[147:147] = src1_is_pc;   //����??1�Ƿ�Ϊpc
 assign ds_to_es_bus[148:148] = src2_is_imm;  //����??2�Ƿ�Ϊ������
-assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�???
+assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�??
 */
 wire [31:0] es_pc;
 wire [31:0] es_rj_value;
@@ -59,9 +59,7 @@ always @(posedge clk)
         if(reset)
             ds_to_es_bus_reg <= 0;
         else if(ds_to_es_valid && es_allow_in)
-            ds_to_es_bus_reg <= ds_to_es_bus;
-        else
-            ds_to_es_bus_reg <= 0; 
+            ds_to_es_bus_reg <= ds_to_es_bus; 
     end
 
 assign {es_res_from_mem, es_src2_is_imm, es_src1_is_pc,
@@ -83,7 +81,7 @@ assign es_to_ms_bus[70:39] = es_alu_result;
 
 /*-------------------------与alu接口---------------------*/
 
-//wire [31:0] es_alu_result; 在上面定义是因为上面用了此信�????
+//wire [31:0] es_alu_result; 在上面定义是因为上面用了此信�???
 wire [31:0] alu_src1;
 wire [31:0] alu_src2;
 
@@ -101,12 +99,12 @@ alu u_alu(
 
 
 /*-------------------------valid-------------------------*/
-reg es_valid;    //valid信号表示这一级流水缓存是否有�?????
+reg es_valid;    //valid信号表示这一级流水缓存是否有�????
 
 wire es_ready_go;
 assign es_ready_go = 1'b1;
-assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
-assign es_to_ms_valid = es_valid && es_ready_go;
+assign es_allow_in = es_ready_go && ms_allow_in;
+assign es_to_ms_valid = es_valid;
 
 always @(posedge clk)
     begin
@@ -125,7 +123,7 @@ assign data_sram_addr  = es_alu_result;
 assign data_sram_wdata = es_rkd_value;        //st_w指令写的是rd的value
 /*--------------------------------------------------------*/
 
-/*-----------------------发�?�es_to_ds_bus----------------*/
+/*-----------------------发送es_to_ds_bus----------------*/
 assign es_to_ds_bus = {es_gr_we,es_dest};
 
 /*-------------------------------------------------------*/

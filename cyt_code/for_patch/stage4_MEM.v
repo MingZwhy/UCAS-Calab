@@ -46,8 +46,6 @@ always @(posedge clk)
             es_to_ms_bus_reg <= 0;
         else if(es_to_ms_valid && ms_allow_in)
             es_to_ms_bus_reg <= es_to_ms_bus;
-        else
-            es_to_ms_bus_reg <= 0;
     end 
 
 assign {ms_alu_result, ms_dest, ms_res_from_mem,
@@ -68,12 +66,12 @@ assign ms_to_ws_bus[69:38] = ms_final_result;
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
-reg ms_valid;    //valid信号表示这一级流水缓存是否有�????
+reg ms_valid;    //valid信号表示这一级流水缓存是否有�???
 
 wire ms_ready_go;
 assign ms_ready_go = 1'b1;
-assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
-assign ms_to_ws_valid = ms_valid && ms_ready_go;
+assign ms_allow_in = ms_ready_go && ws_allow_in;
+assign ms_to_ws_valid = ms_valid;
 
 always @(posedge clk)
     begin
@@ -85,7 +83,7 @@ always @(posedge clk)
 
 /*-------------------------------------------------------*/
 
-/*--------------------发�?�ms_to_ds_bus-------------------*/
+/*--------------------发送ms_to_ds_bus-------------------*/
 assign ms_to_ds_bus = {ms_gr_we,ms_dest};
 /*-------------------------------------------------------*/
 

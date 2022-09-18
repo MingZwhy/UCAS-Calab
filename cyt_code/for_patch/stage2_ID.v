@@ -20,10 +20,10 @@ module stage2_ID(
     input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
     output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
 
-    //ws_to_ds_bus 承载 寄存器的写信号，写地�?????与写数据
+    //ws_to_ds_bus 承载 寄存器的写信号，写地�????与写数据
     //从wback阶段 送来 decode阶段 
     input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
-    //br_bus 承载 br_taken �????? br_target 
+    //br_bus 承载 br_taken �???? br_target 
     //从decode阶段 送往 fetch阶段
     output [`WIDTH_BR_BUS-1:0] br_bus,
 
@@ -31,7 +31,7 @@ module stage2_ID(
     input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
 );
 
-/*-------------------------解码及控制信�?????--------------------------*/
+/*-------------------------解码及控制信�????--------------------------*/
 wire [31:0] inst;
 
 wire        br_taken;
@@ -126,10 +126,10 @@ decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
 assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
 //sun_w: rd = rj - rk   asm: sub.w rd, rj, rk
 assign inst_sub_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
-//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (视作有符号整数比较大�?????)
+//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (视作有符号整数比较大�????)
 //asm: slt rd, rj, rk
 assign inst_slt    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h04];
-//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (视作无符号整数比较大�?????)
+//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (视作无符号整数比较大�????)
 //asm: sltu rd, rj, rk
 assign inst_sltu   = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h05];
 //nor: rd = ~(rj | rk)   asm: nor rd, rj, rk
@@ -194,7 +194,7 @@ assign need_si26  =  inst_b | inst_bl;
 //加法器第二个操作数�?�择—�?�是否为4
 assign src2_is_4  =  inst_jirl | inst_bl;   
 
-//branch的跳转地�?????目前只有两种—�?�si26与si16
+//branch的跳转地�????目前只有两种—�?�si26与si16
 assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :   
                              {{14{i16[15]}}, i16[15:0], 2'b0} ;   
 //jirl_offs单独列出主要是因为它不是b类型指令，也方便后序拓展
@@ -209,7 +209,7 @@ assign rj_eq_rd = (rj_value == rkd_value);
 /*----------------------------------------------------------------*/
 
 /*-----------------------接收fs_to_ds_bus----------------*/
-//wire [31:0] inst; 定义在前�????   
+//wire [31:0] inst; 定义在前�???   
 wire [31:0] ds_pc;
 
 reg [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus_reg;
@@ -241,13 +241,9 @@ assign {ms_we,ms_dest} = ms_to_ds_bus;
 /*-----------------------发�?�br_bus----------------------*/
 assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)   
                    || inst_jirl || inst_bl || inst_b) && ds_valid;
-
-wire br_taken_cancel;
-//assign br_taken_cancel = (inst_beq || inst_bne || inst_jirl || inst_bl || inst_b) && ds_valid;
-
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (ds_pc + br_offs) :   
                                                    /*inst_jirl*/ (rj_value + jirl_offs); 
-assign br_bus = {br_taken_cancel,br_taken,br_target};           
+assign br_bus = {br_taken,br_target};           
 /*-------------------------------------------------------*/
 
 /*-----------------------发�?�ds_to_es_bus----------------*/
@@ -294,90 +290,35 @@ assign res_from_mem  = inst_ld_w;
 assign ds_to_es_bus[31:   0] = ds_pc;        //pc����fetch��???��execute
 assign ds_to_es_bus[63:  32] = rj_value;  //reg_file������data1
 assign ds_to_es_bus[95:  64] = rkd_value; //reg_file������data2
-assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����?????
-assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����???
+assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����????
+assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����??
 assign ds_to_es_bus[133:133] = gr_we;     //�Ƿ�д�Ĵ���
 assign ds_to_es_bus[134:134] = mem_we;    //�Ƿ�д��??
 assign ds_to_es_bus[146:135] = alu_op;    //alu����??
 assign ds_to_es_bus[147:147] = src1_is_pc;   //����??1�Ƿ�Ϊpc
 assign ds_to_es_bus[148:148] = src2_is_imm;  //����??2�Ƿ�Ϊ������
-assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�???
+assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�??
 /*-------------------------------------------------------*/
 
 /*--------------------------------valid---------------------------*/
-reg ds_valid;    //valid信号表示这一级流水缓存是否有�?????
-//处理写后读冲�??
-wire if_read_addr1;   //�Ƿ���Ĵ�����addr1
-wire if_read_addr2;   //�Ƿ���Ĵ�����addr2
-
-assign if_read_addr1 = ~inst_b && ~inst_bl;
-assign if_read_addr2 = inst_beq || inst_bne || inst_xor || inst_or || inst_and || inst_nor ||
-                       inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w;
-
-wire if_crush_addr;    //addr�Ƿ����д��??
-
-assign if_crush_addr = ex_crush || mem_crush || wb_crush;
-
-/*
-reg skip_ex;
-reg skip_mem;
-reg skip_wb;
-
-always @(posedge clk)
-    begin
-        if(reset)
-            skip_ex <= 1'b0;
-        else if(ex_crush)
-            skip_ex <= 1'b1;
-        else if(ds_ready_go)
-            skip_ex <= 1'b0;
-    end
-
-always @(posedge clk)
-    begin
-        if(reset)
-            skip_mem <= 1'b0;
-        else if(mem_crush && !ex_crush)
-            skip_mem <= 1'b1;
-        else if(ds_ready_go)
-            skip_mem <= 1'b0;
-    end
-
-always @(posedge clk)
-    begin
-        if(reset)
-            skip_wb <= 1'b0;
-        else if(wb_crush && !mem_crush)
-            skip_wb <= 1'b1;
-        else if(ds_ready_go)
-            skip_wb <= 1'b0;
-    end
-*/
-
-wire ex_crush;
-assign ex_crush = ((es_we && es_dest!=0) && ( (if_read_addr1 && rf_raddr1==es_dest) || (if_read_addr2 && rf_raddr2==es_dest) )); // && !skip_ex;
-wire mem_crush;
-assign mem_crush = ((ms_we && ms_dest!=0) && ( (if_read_addr1 && rf_raddr1==ms_dest) || (if_read_addr2 && rf_raddr2==ms_dest) )); // && !skip_mem;
-wire wb_crush;
-assign wb_crush = ((rf_we && rf_waddr!=0) && ( (if_read_addr1 && rf_raddr1==rf_waddr) || (if_read_addr2 && rf_raddr2==rf_waddr) )); // && !skip_wb;
+reg ds_valid;    //valid信号表示这一级流水缓存是否有�????
+//处理写后读冲�?
 
 wire ds_ready_go;
-assign ds_ready_go = ~if_crush_addr;         
-assign ds_allow_in = !ds_valid || ds_ready_go && es_allow_in;
-assign ds_to_es_valid = ds_valid && ds_ready_go;
-
-//当数据冲突，ds_ready_go拉低，ds_allow_in对应拉低，ds_to_es_valid对应拉低
-
-assign br_taken_cancel =  if_crush_addr ? 1'b0 : br_taken;
+assign ds_ready_go = 1'b1;   
+assign ds_allow_in = ds_ready_go && es_allow_in;
+assign ds_to_es_valid = ds_valid;
 
 always @(posedge clk)
     begin
         if(reset)
             ds_valid <= 1'b0;
-        else if(br_taken_cancel)
+        else if(br_taken)
             ds_valid <= 1'b0;
         else if(ds_allow_in)
             ds_valid <= fs_to_ds_valid;
+        else
+            ds_valid <= 1'b0;
     end
 /*----------------------------------------------------------------*/
 
@@ -396,7 +337,7 @@ regfile u_regfile(
     );
 /*
 assign {rf_we,rf_waddr,rf_wdata} = ws_to_ds_bus;
-意在强调提醒此时的we，waddr和wdata来自wb阶段发来的信�?????
+意在强调提醒此时的we，waddr和wdata来自wb阶段发来的信�????
 */
 /*----------------------------------------------------------------*/
 
