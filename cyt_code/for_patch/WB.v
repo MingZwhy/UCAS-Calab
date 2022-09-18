@@ -46,6 +46,8 @@ always @(posedge clk)
             ms_to_ws_bus_reg <= 0;
         else if(ms_to_ws_valid && ws_allow_in)
             ms_to_ws_bus_reg <= ms_to_ws_bus;
+        else
+            ms_to_ws_bus_reg <= 0;
     end 
 
 assign {ws_final_result, ws_dest,
@@ -55,7 +57,7 @@ assign {ws_final_result, ws_dest,
 
 /*----------------------发�?�ws_to_ds_bus-----------------*/
 
-reg ws_valid;    //valid信号表示这一级流水缓存是否有�???
+reg ws_valid;    //valid信号表示这一级流水缓存是否有�????
 
 wire ws_we;
 assign ws_we = ws_gr_we && ws_valid;
@@ -71,10 +73,10 @@ assign ws_to_ds_bus[37:37] = ws_we;
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
-//reg ws_valid;    //valid信号表示这一级流水缓存是否有效，在上面定义是因为上面用了此信�???
+//reg ws_valid;    //valid信号表示这一级流水缓存是否有效，在上面定义是因为上面用了此信�????
 wire ws_ready_go;
 assign ws_ready_go = 1'b1;
-assign ws_allow_in = ws_ready_go;
+assign ws_allow_in = !ws_valid || ws_ready_go;
 
 always @(posedge clk)
     begin
