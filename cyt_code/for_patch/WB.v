@@ -1,11 +1,11 @@
-`define WIDTH_BR_BUS       33
+`define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
 `define WIDTH_DS_TO_ES_BUS 150
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
-`define WIDTH_ES_TO_DS_BUS 6
-`define WIDTH_MS_TO_DS_BUS 6
+`define WIDTH_ES_TO_DS_BUS 39
+`define WIDTH_MS_TO_DS_BUS 38
 
 module stage5_WB(
     input clk,
@@ -26,7 +26,7 @@ module stage5_WB(
     output [31:0] debug_wb_rf_wdata
 );
 
-/*-----------------------接收ms_to_ws_bus----------------*/
+/*-----------------------鎺ユ敹ms_to_ws_bus----------------*/
 /*
 assign ms_to_ws_bus[31:0]  = ms_pc;
 assign ms_to_ws_bus[32:32] = ms_gr_we;
@@ -55,9 +55,9 @@ assign {ws_final_result, ws_dest,
 
 /*-------------------------------------------------------*/
 
-/*----------------------发�?�ws_to_ds_bus-----------------*/
+/*----------------------鍙戯拷?锟絯s_to_ds_bus-----------------*/
 
-reg ws_valid;    //valid信号表示这一级流水缓存是否有�????
+reg ws_valid;    //valid淇″彿琛ㄧず杩欎竴绾ф祦姘寸紦瀛樻槸鍚︽湁锟�????
 
 wire ws_we;
 assign ws_we = ws_gr_we && ws_valid;
@@ -73,7 +73,7 @@ assign ws_to_ds_bus[37:37] = ws_we;
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
-//reg ws_valid;    //valid信号表示这一级流水缓存是否有效，在上面定义是因为上面用了此信�????
+//reg ws_valid;    //valid淇″彿琛ㄧず杩欎竴绾ф祦姘寸紦瀛樻槸鍚︽湁鏁堬紝鍦ㄤ笂闈㈠畾涔夋槸鍥犱负涓婇潰鐢ㄤ簡姝や俊锟�????
 wire ws_ready_go;
 assign ws_ready_go = 1'b1;
 assign ws_allow_in = !ws_valid || ws_ready_go;

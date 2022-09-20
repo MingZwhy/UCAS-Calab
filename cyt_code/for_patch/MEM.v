@@ -1,11 +1,11 @@
-`define WIDTH_BR_BUS       33
+`define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
 `define WIDTH_DS_TO_ES_BUS 150
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
-`define WIDTH_ES_TO_DS_BUS 6
-`define WIDTH_MS_TO_DS_BUS 6
+`define WIDTH_ES_TO_DS_BUS 39
+`define WIDTH_MS_TO_DS_BUS 38
 
 module stage4_MEM(
     input clk,
@@ -24,7 +24,7 @@ module stage4_MEM(
     input [31:0] data_sram_rdata
 );
 
-/*-----------------------接收es_to_ms_bus----------------*/
+/*-----------------------鎺ユ敹es_to_ms_bus----------------*/
 /*
 assign es_to_ms_bus[31:0] = es_pc;
 assign es_to_ms_bus[32:32] = es_gr_we;
@@ -55,7 +55,7 @@ assign {ms_alu_result, ms_dest, ms_res_from_mem,
 
 /*-------------------------------------------------------*/
 
-/*----------------------发�?�ms_to_ws_bus-----------------*/
+/*----------------------鍙戯拷?锟絤s_to_ws_bus-----------------*/
 wire [31:0] mem_result;
 assign mem_result   = data_sram_rdata;
 wire [31:0] ms_final_result;
@@ -68,7 +68,7 @@ assign ms_to_ws_bus[69:38] = ms_final_result;
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
-reg ms_valid;    //valid信号表示这一级流水缓存是否有�????
+reg ms_valid;    //valid淇″彿琛ㄧず杩欎竴绾ф祦姘寸紦瀛樻槸鍚︽湁锟�????
 
 wire ms_ready_go;
 assign ms_ready_go = 1'b1;
@@ -85,8 +85,8 @@ always @(posedge clk)
 
 /*-------------------------------------------------------*/
 
-/*--------------------发�?�ms_to_ds_bus-------------------*/
-assign ms_to_ds_bus = {ms_gr_we,ms_dest};
+/*--------------------鍙戯拷?锟絤s_to_ds_bus-------------------*/
+assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result};
 /*-------------------------------------------------------*/
 
 endmodule

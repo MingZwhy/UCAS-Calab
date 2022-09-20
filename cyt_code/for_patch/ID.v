@@ -1,11 +1,11 @@
-`define WIDTH_BR_BUS       33
+`define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
 `define WIDTH_DS_TO_ES_BUS 150
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
-`define WIDTH_ES_TO_DS_BUS 6
-`define WIDTH_MS_TO_DS_BUS 6
+`define WIDTH_ES_TO_DS_BUS 39
+`define WIDTH_MS_TO_DS_BUS 38
 
 module stage2_ID(
     input clk,
@@ -20,18 +20,18 @@ module stage2_ID(
     input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
     output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
 
-    //ws_to_ds_bus 承载 寄存器的写信号，写地�?????与写数据
-    //从wback阶段 送来 decode阶段 
+    //ws_to_ds_bus 鎵胯浇 瀵勫瓨鍣ㄧ殑鍐欎俊鍙凤紝鍐欏湴锟�?????涓庡啓鏁版嵁
+    //浠巜back闃舵 閫佹潵 decode闃舵 
     input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
-    //br_bus 承载 br_taken �????? br_target 
-    //从decode阶段 送往 fetch阶段
+    //br_bus 鎵胯浇 br_taken 锟�????? br_target 
+    //浠巇ecode闃舵 閫佸線 fetch闃舵
     output [`WIDTH_BR_BUS-1:0] br_bus,
 
     input [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
     input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
 );
 
-/*-------------------------解码及控制信�?????--------------------------*/
+/*-------------------------瑙ｇ爜鍙婃帶鍒朵俊锟�?????--------------------------*/
 wire [31:0] inst;
 
 wire        br_taken;
@@ -115,7 +115,7 @@ assign rk   = inst[14:10];  //checked
 assign i12  = inst[21:10];  //checked
 assign i20  = inst[24: 5];  //checked
 assign i16  = inst[25:10];  //checked
-assign i26  = {inst[ 9: 0], inst[25:10]};   //checked  !!!注意B指令的立即数高低位是反的
+assign i26  = {inst[ 9: 0], inst[25:10]};   //checked  !!!娉ㄦ剰B鎸囦护鐨勭珛鍗虫暟楂樹綆浣嶆槸鍙嶇殑
 
 decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
@@ -126,10 +126,10 @@ decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
 assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
 //sun_w: rd = rj - rk   asm: sub.w rd, rj, rk
 assign inst_sub_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
-//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (视作有符号整数比较大�?????)
+//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (瑙嗕綔鏈夌鍙锋暣鏁版瘮杈冨ぇ锟�?????)
 //asm: slt rd, rj, rk
 assign inst_slt    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h04];
-//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (视作无符号整数比较大�?????)
+//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (瑙嗕綔鏃犵鍙锋暣鏁版瘮杈冨ぇ锟�?????)
 //asm: sltu rd, rj, rk
 assign inst_sltu   = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h05];
 //nor: rd = ~(rj | rk)   asm: nor rd, rj, rk
@@ -141,13 +141,13 @@ assign inst_or     = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & o
 //xor: rd = rj ^ rk  asm: xor rd, rj, rk
 assign inst_xor    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0b];
 //slli.w: rd = SLL(rj, ui5)  asm: slli.w rd, rj, ui5
-//rj中的数�?�辑左移写入rd
+//rj涓殑鏁帮拷?锟借緫宸︾Щ鍐欏叆rd
 assign inst_slli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h01];
 //srli.w: rd = SRL(rj, ui5)  asm: srli.w rd, rj, ui5
-//rj中的数�?�辑右移写入rd
+//rj涓殑鏁帮拷?锟借緫鍙崇Щ鍐欏叆rd
 assign inst_srli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h09];
 //srai.w: rd = SRA(rj, ui5)  asm: srai.w rd, rj, ui5
-//rj中的数算数右移写入rd
+//rj涓殑鏁扮畻鏁板彸绉诲啓鍏d
 assign inst_srai_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h11];
 //addi.w: rd = rj + SignExtend(si12, 32)  asm: addi.w rd, rj, si12
 assign inst_addi_w = op_31_26_d[6'h00] & op_25_22_d[4'ha];
@@ -185,22 +185,22 @@ assign inst_bne    = op_31_26_d[6'h17];
 //rd = {si20, 12'b0}
 assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
 
-//使用立即数种类�?�择
+//浣跨敤绔嬪嵆鏁扮绫伙拷?锟芥嫨
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;  
 assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w;   
 assign need_si16  =  inst_jirl | inst_beq | inst_bne;       
 assign need_si20  =  inst_lu12i_w;          
 assign need_si26  =  inst_b | inst_bl;      
-//加法器第二个操作数�?�择—�?�是否为4
+//鍔犳硶鍣ㄧ浜屼釜鎿嶄綔鏁帮拷?锟芥嫨鈥旓拷?锟芥槸鍚︿负4
 assign src2_is_4  =  inst_jirl | inst_bl;   
 
-//branch的跳转地�?????目前只有两种—�?�si26与si16
+//branch鐨勮烦杞湴锟�?????鐩墠鍙湁涓ょ鈥旓拷?锟絪i26涓巗i16
 assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :   
                              {{14{i16[15]}}, i16[15:0], 2'b0} ;   
-//jirl_offs单独列出主要是因为它不是b类型指令，也方便后序拓展
+//jirl_offs鍗曠嫭鍒楀嚭涓昏鏄洜涓哄畠涓嶆槸b绫诲瀷鎸囦护锛屼篃鏂逛究鍚庡簭鎷撳睍
 assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};   
 
-//src_reg_is_rd代表reg_file第二个读端口是否接rd，否则接rk
+//src_reg_is_rd浠ｈ〃reg_file绗簩涓绔彛鏄惁鎺d锛屽惁鍒欐帴rk
 assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w;
 
 //used for judging br_taken
@@ -208,8 +208,8 @@ assign rj_eq_rd = (rj_value == rkd_value);
 
 /*----------------------------------------------------------------*/
 
-/*-----------------------接收fs_to_ds_bus----------------*/
-//wire [31:0] inst; 定义在前�????   
+/*-----------------------鎺ユ敹fs_to_ds_bus----------------*/
+//wire [31:0] inst; 瀹氫箟鍦ㄥ墠锟�????   
 wire [31:0] ds_pc;
 
 reg [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus_reg;
@@ -223,7 +223,7 @@ always @(posedge clk)
 assign {inst,ds_pc} = fs_to_ds_bus_reg;         //_reg;
 /*-------------------------------------------------------*/
 
-/*-----------------------接收es,ms,ws_to_ds_bus----------------*/
+/*-----------------------鎺ユ敹es,ms,ws_to_ds_bus----------------*/
 wire rf_we;
 wire [4:0] rf_waddr;
 wire [31:0] rf_wdata;
@@ -231,14 +231,17 @@ assign {rf_we,rf_waddr,rf_wdata} = ws_to_ds_bus;
 
 wire es_we;
 wire [4:0] es_dest;
+wire IF_LOAD;
+wire [31:0] es_wdata;
 wire ms_we;
 wire [4:0] ms_dest;
+wire [31:0] ms_wdata;
 
-assign {es_we,es_dest} = es_to_ds_bus;
-assign {ms_we,ms_dest} = ms_to_ds_bus;
+assign {es_we,es_dest,IF_LOAD,es_wdata} = es_to_ds_bus;
+assign {ms_we,ms_dest,ms_wdata} = ms_to_ds_bus;
 /*-------------------------------------------------------*/
 
-/*-----------------------发�?�br_bus----------------------*/
+/*-----------------------鍙戯拷?锟絙r_bus----------------------*/
 assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)   
                    || inst_jirl || inst_bl || inst_b) && ds_valid;
 
@@ -250,15 +253,15 @@ assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (ds_pc + br_off
 assign br_bus = {br_taken_cancel,br_taken,br_target};           
 /*-------------------------------------------------------*/
 
-/*-----------------------发�?�ds_to_es_bus----------------*/
-assign rj_value  = rf_rdata1;   
-assign rkd_value = rf_rdata2;   
+/*-----------------------鍙戯拷?锟絛s_to_es_bus----------------*/
+assign rj_value  = forward_rdata1;   
+assign rkd_value = forward_rdata2;   
 assign imm = src2_is_4 ? 32'h4                      :   
              need_si20 ? {i20[19:0], 12'b0}         :   
              need_ui5  ? {27'b0,rk[4:0]}            :   
              need_si12 ? {{20{i12[11]}}, i12[11:0]} :   
              32'b0 ;
-assign dst_is_r1     = inst_bl;     //不需送出，只是辅助dest
+assign dst_is_r1     = inst_bl;     //涓嶉渶閫佸嚭锛屽彧鏄緟鍔ヾest
 assign dest = dst_is_r1 ? 5'd1 : rd;
 assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b;   
 assign mem_we        = inst_st_w;
@@ -291,84 +294,62 @@ assign src2_is_imm   = inst_slli_w |    //checked
 
 assign res_from_mem  = inst_ld_w;
 
-assign ds_to_es_bus[31:   0] = ds_pc;        //pc����fetch��???��execute
-assign ds_to_es_bus[63:  32] = rj_value;  //reg_file������data1
-assign ds_to_es_bus[95:  64] = rkd_value; //reg_file������data2
-assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����?????
-assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����???
-assign ds_to_es_bus[133:133] = gr_we;     //�Ƿ�д�Ĵ���
-assign ds_to_es_bus[134:134] = mem_we;    //�Ƿ�д��??
-assign ds_to_es_bus[146:135] = alu_op;    //alu����??
-assign ds_to_es_bus[147:147] = src1_is_pc;   //����??1�Ƿ�Ϊpc
-assign ds_to_es_bus[148:148] = src2_is_imm;  //����??2�Ƿ�Ϊ������
-assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�???
+assign ds_to_es_bus[31:   0] = ds_pc;        //pc锟斤拷锟斤拷fetch锟斤拷???锟斤拷execute
+assign ds_to_es_bus[63:  32] = rj_value;  //reg_file锟斤拷锟斤拷锟斤拷data1
+assign ds_to_es_bus[95:  64] = rkd_value; //reg_file锟斤拷锟斤拷锟斤拷data2
+assign ds_to_es_bus[127: 96] = imm;       //选锟斤拷玫锟斤拷锟斤拷锟�?????
+assign ds_to_es_bus[132:128] = dest;      //写锟斤拷拇锟斤拷锟斤拷锟�???
+assign ds_to_es_bus[133:133] = gr_we;     //锟角凤拷写锟侥达拷锟斤拷
+assign ds_to_es_bus[134:134] = mem_we;    //锟角凤拷写锟斤拷??
+assign ds_to_es_bus[146:135] = alu_op;    //alu锟斤拷锟斤拷??
+assign ds_to_es_bus[147:147] = src1_is_pc;   //锟斤拷锟斤拷??1锟角凤拷为pc
+assign ds_to_es_bus[148:148] = src2_is_imm;  //锟斤拷锟斤拷??2锟角凤拷为锟斤拷锟斤拷锟斤拷
+assign ds_to_es_bus[149:149] = res_from_mem; //写锟侥达拷锟斤拷锟斤拷锟斤拷欠锟斤拷锟斤拷锟斤拷诖锟�???
 /*-------------------------------------------------------*/
 
 /*--------------------------------valid---------------------------*/
-reg ds_valid;    //valid信号表示这一级流水缓存是否有�?????
-//处理写后读冲�??
-wire if_read_addr1;   //�Ƿ���Ĵ�����addr1
-wire if_read_addr2;   //�Ƿ���Ĵ�����addr2
+reg ds_valid;    //valid淇″彿琛ㄧず杩欎竴绾ф祦姘寸紦瀛樻槸鍚︽湁锟�?????
+//澶勭悊鍐欏悗璇诲啿锟�??
+wire if_read_addr1;   //锟角凤拷锟斤拷拇锟斤拷锟斤拷锟絘ddr1
+wire if_read_addr2;   //锟角凤拷锟斤拷拇锟斤拷锟斤拷锟絘ddr2
 
 assign if_read_addr1 = ~inst_b && ~inst_bl;
 assign if_read_addr2 = inst_beq || inst_bne || inst_xor || inst_or || inst_and || inst_nor ||
                        inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w;
 
-wire if_crush_addr;    //addr�Ƿ����д��??
+wire Need_Block;    //ex_crush & IF_LOAD
 
-assign if_crush_addr = ex_crush || mem_crush || wb_crush;
+assign Need_Block = (ex_crush1 || ex_crush2) && IF_LOAD;
 
-/*
-reg skip_ex;
-reg skip_mem;
-reg skip_wb;
+wire ex_crush1;
+wire ex_crush2;
+assign ex_crush1 = (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
+assign ex_crush2 = (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
 
-always @(posedge clk)
-    begin
-        if(reset)
-            skip_ex <= 1'b0;
-        else if(ex_crush)
-            skip_ex <= 1'b1;
-        else if(ds_ready_go)
-            skip_ex <= 1'b0;
-    end
+wire mem_crush1;
+wire mem_crush2;
+assign mem_crush1 = (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
+assign mem_crush2 = (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
 
-always @(posedge clk)
-    begin
-        if(reset)
-            skip_mem <= 1'b0;
-        else if(mem_crush && !ex_crush)
-            skip_mem <= 1'b1;
-        else if(ds_ready_go)
-            skip_mem <= 1'b0;
-    end
+wire wb_crush1;
+wire wb_crush2;
+assign wb_crush1 = (rf_we && rf_waddr!=0) && (if_read_addr1 && rf_raddr1==rf_waddr);
+assign wb_crush2 = (rf_we && rf_waddr!=0) && (if_read_addr2 && rf_raddr2==rf_waddr);
 
-always @(posedge clk)
-    begin
-        if(reset)
-            skip_wb <= 1'b0;
-        else if(wb_crush && !mem_crush)
-            skip_wb <= 1'b1;
-        else if(ds_ready_go)
-            skip_wb <= 1'b0;
-    end
-*/
-
-wire ex_crush;
-assign ex_crush = ((es_we && es_dest!=0) && ( (if_read_addr1 && rf_raddr1==es_dest) || (if_read_addr2 && rf_raddr2==es_dest) )); // && !skip_ex;
-wire mem_crush;
-assign mem_crush = ((ms_we && ms_dest!=0) && ( (if_read_addr1 && rf_raddr1==ms_dest) || (if_read_addr2 && rf_raddr2==ms_dest) )); // && !skip_mem;
-wire wb_crush;
-assign wb_crush = ((rf_we && rf_waddr!=0) && ( (if_read_addr1 && rf_raddr1==rf_waddr) || (if_read_addr2 && rf_raddr2==rf_waddr) )); // && !skip_wb;
+//forward deliver
+wire [31:0] forward_rdata1;
+wire [31:0] forward_rdata2;
+assign forward_rdata1 = ex_crush1? es_wdata : mem_crush1? ms_wdata : wb_crush1? rf_wdata : rf_rdata1;
+assign forward_rdata2 = ex_crush2? es_wdata : mem_crush2? ms_wdata : wb_crush2? rf_wdata : rf_rdata2;
 
 wire ds_ready_go;
-assign ds_ready_go = ~if_crush_addr;         
+assign ds_ready_go = ~Need_Block;         
 assign ds_allow_in = !ds_valid || ds_ready_go && es_allow_in;
 assign ds_to_es_valid = ds_valid && ds_ready_go;
 
-//当数据冲突，ds_ready_go拉低，ds_allow_in对应拉低，ds_to_es_valid对应拉低
+//褰撴暟鎹啿绐侊紝ds_ready_go鎷変綆锛宒s_allow_in瀵瑰簲鎷変綆锛宒s_to_es_valid瀵瑰簲鎷変綆
 
-assign br_taken_cancel =  if_crush_addr ? 1'b0 : br_taken;
+assign br_taken_cancel =  Need_Block ? 1'b0 : br_taken;
 
 always @(posedge clk)
     begin
@@ -381,7 +362,7 @@ always @(posedge clk)
     end
 /*----------------------------------------------------------------*/
 
-/*-------------------------与regfile接口---------------------------*/
+/*-------------------------涓巖egfile鎺ュ彛---------------------------*/
 assign rf_raddr1 = rj;  
 assign rf_raddr2 = src_reg_is_rd ? rd : rk; 
 regfile u_regfile(
@@ -396,7 +377,7 @@ regfile u_regfile(
     );
 /*
 assign {rf_we,rf_waddr,rf_wdata} = ws_to_ds_bus;
-意在强调提醒此时的we，waddr和wdata来自wb阶段发来的信�?????
+鎰忓湪寮鸿皟鎻愰啋姝ゆ椂鐨剋e锛寃addr鍜寃data鏉ヨ嚜wb闃舵鍙戞潵鐨勪俊锟�?????
 */
 /*----------------------------------------------------------------*/
 

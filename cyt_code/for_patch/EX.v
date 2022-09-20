@@ -1,11 +1,11 @@
-`define WIDTH_BR_BUS       33
+`define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
 `define WIDTH_DS_TO_ES_BUS 150
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
-`define WIDTH_ES_TO_DS_BUS 6
-`define WIDTH_MS_TO_DS_BUS 6
+`define WIDTH_ES_TO_DS_BUS 39
+`define WIDTH_MS_TO_DS_BUS 38
 
 module stage3_EX(
     input clk,
@@ -27,19 +27,19 @@ module stage3_EX(
     output [31:0] data_sram_wdata
 );
 
-/*-----------------------接收ds_to_es_bus----------------*/
+/*-----------------------鎺ユ敹ds_to_es_bus----------------*/
 /*
-assign ds_to_es_bus[31:   0] = ds_pc;        //pc����fetch��???��execute
-assign ds_to_es_bus[63:  32] = rj_value;  //reg_file������data1
-assign ds_to_es_bus[95:  64] = rkd_value; //reg_file������data2
-assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����?????
-assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����???
-assign ds_to_es_bus[133:133] = gr_we;     //�Ƿ�д�Ĵ���
-assign ds_to_es_bus[134:134] = mem_we;    //�Ƿ�д��??
-assign ds_to_es_bus[146:135] = alu_op;    //alu����??
-assign ds_to_es_bus[147:147] = src1_is_pc;   //����??1�Ƿ�Ϊpc
-assign ds_to_es_bus[148:148] = src2_is_imm;  //����??2�Ƿ�Ϊ������
-assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�???
+assign ds_to_es_bus[31:   0] = ds_pc;        //pc锟斤拷锟斤拷fetch锟斤拷???锟斤拷execute
+assign ds_to_es_bus[63:  32] = rj_value;  //reg_file锟斤拷锟斤拷锟斤拷data1
+assign ds_to_es_bus[95:  64] = rkd_value; //reg_file锟斤拷锟斤拷锟斤拷data2
+assign ds_to_es_bus[127: 96] = imm;       //选锟斤拷玫锟斤拷锟斤拷锟�?????
+assign ds_to_es_bus[132:128] = dest;      //写锟斤拷拇锟斤拷锟斤拷锟�???
+assign ds_to_es_bus[133:133] = gr_we;     //锟角凤拷写锟侥达拷锟斤拷
+assign ds_to_es_bus[134:134] = mem_we;    //锟角凤拷写锟斤拷??
+assign ds_to_es_bus[146:135] = alu_op;    //alu锟斤拷锟斤拷??
+assign ds_to_es_bus[147:147] = src1_is_pc;   //锟斤拷锟斤拷??1锟角凤拷为pc
+assign ds_to_es_bus[148:148] = src2_is_imm;  //锟斤拷锟斤拷??2锟角凤拷为锟斤拷锟斤拷锟斤拷
+assign ds_to_es_bus[149:149] = res_from_mem; //写锟侥达拷锟斤拷锟斤拷锟斤拷欠锟斤拷锟斤拷锟斤拷诖锟�???
 */
 wire [31:0] es_pc;
 wire [31:0] es_rj_value;
@@ -69,7 +69,7 @@ assign {es_res_from_mem, es_src2_is_imm, es_src1_is_pc,
         es_rkd_value, es_rj_value, es_pc} = ds_to_es_bus_reg;
 /*-------------------------------------------------------*/
 
-/*-----------------------发�?�es_to_ms_bus----------------*/
+/*-----------------------鍙戯拷?锟絜s_to_ms_bus----------------*/
 
 wire [31:0] es_alu_result;
 
@@ -81,9 +81,9 @@ assign es_to_ms_bus[70:39] = es_alu_result;
 
 /*-------------------------------------------------------*/
 
-/*-------------------------与alu接口---------------------*/
+/*-------------------------涓巃lu鎺ュ彛---------------------*/
 
-//wire [31:0] es_alu_result; 在上面定义是因为上面用了此信�????
+//wire [31:0] es_alu_result; 鍦ㄤ笂闈㈠畾涔夋槸鍥犱负涓婇潰鐢ㄤ簡姝や俊锟�????
 wire [31:0] alu_src1;
 wire [31:0] alu_src2;
 
@@ -101,7 +101,7 @@ alu u_alu(
 
 
 /*-------------------------valid-------------------------*/
-reg es_valid;    //valid信号表示这一级流水缓存是否有�?????
+reg es_valid;    //valid淇″彿琛ㄧず杩欎竴绾ф祦姘寸紦瀛樻槸鍚︽湁锟�?????
 
 wire es_ready_go;
 assign es_ready_go = 1'b1;
@@ -118,15 +118,17 @@ always @(posedge clk)
 
 /*-------------------------------------------------------*/
 
-/*----------------------与data_sram接口-------------------*/
-assign data_sram_en    = 1'b1;   //暂时是始终可读的
+/*----------------------涓巇ata_sram鎺ュ彛-------------------*/
+assign data_sram_en    = 1'b1;   //鏆傛椂鏄缁堝彲璇荤殑
 assign data_sram_wen   = (es_mem_we && es_valid) ? 4'b1111 : 4'b0000;
 assign data_sram_addr  = es_alu_result;
-assign data_sram_wdata = es_rkd_value;        //st_w指令写的是rd的value
+assign data_sram_wdata = es_rkd_value;        //st_w鎸囦护鍐欑殑鏄痳d鐨剉alue
 /*--------------------------------------------------------*/
 
-/*-----------------------发�?�es_to_ds_bus----------------*/
-assign es_to_ds_bus = {es_gr_we,es_dest};
+/*-----------------------鍙戯拷?锟絜s_to_ds_bus----------------*/
+wire IF_LOAD;   //鏄惁load鎸囦护锛屽鏋滄槸load鎸囦护锛屽墠閫掍粛鐒惰闃诲涓€涓懆鏈�
+assign IF_LOAD = es_res_from_mem;
+assign es_to_ds_bus = {es_gr_we,es_dest,IF_LOAD,es_alu_result};
 
 /*-------------------------------------------------------*/
 
