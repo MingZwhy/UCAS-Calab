@@ -24,7 +24,7 @@ module branchpre (
     assign is_26 = inst[31:27] == 5'b01010;
 
     assign out_b = (is_16|is_26)?
-                   (wir_pre==2'b11 || wir_pre==2'b01)?1'b0:1'b1
+                   (wir_pre==2'b11 || wir_pre==2'b10)?1'b1:1'b0
                    :1'b0;
     
     assign pre_pc = (out_b)? 
