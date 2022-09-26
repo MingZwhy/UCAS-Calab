@@ -1,0 +1,614 @@
+From 3400cfae49f1742aea2318a74e30f469f653e0a4 Mon Sep 17 00:00:00 2001
+From: MingZwhy <chenyuanteng20@mails.ucas.ac.cn>
+Date: Sun, 18 Sep 2022 10:50:24 +0800
+Subject: [PATCH] generate patch from ex7 to ex8
+
+---
+ cyt_code/for_patch/{stage3_EX.v => EX.v}   |  20 ++--
+ cyt_code/for_patch/{stage2_ID.v => ID.v}   |  99 +++++++++++++++----
+ cyt_code/for_patch/{stage1_IF.v => IF.v}   |  35 ++++---
+ cyt_code/for_patch/{stage4_MEM.v => MEM.v} |  10 +-
+ cyt_code/for_patch/{stage5_WB.v => WB.v}   |   8 +-
+ cyt_code/for_patch/mycpu_top.v             | 108 ++-------------------
+ 6 files changed, 132 insertions(+), 148 deletions(-)
+ rename cyt_code/for_patch/{stage3_EX.v => EX.v} (91%)
+ rename cyt_code/for_patch/{stage2_ID.v => ID.v} (81%)
+ rename cyt_code/for_patch/{stage1_IF.v => IF.v} (72%)
+ rename cyt_code/for_patch/{stage4_MEM.v => MEM.v} (90%)
+ rename cyt_code/for_patch/{stage5_WB.v => WB.v} (93%)
+
+diff --git a/cyt_code/for_patch/stage3_EX.v b/cyt_code/for_patch/EX.v
+similarity index 91%
+rename from cyt_code/for_patch/stage3_EX.v
+rename to cyt_code/for_patch/EX.v
+index 680f369..dd5c963 100644
+--- a/cyt_code/for_patch/stage3_EX.v
++++ b/cyt_code/for_patch/EX.v
+@@ -32,14 +32,14 @@ module stage3_EX(
+ assign ds_to_es_bus[31:   0] = ds_pc;        //pc����fetch��???��execute
+ assign ds_to_es_bus[63:  32] = rj_value;  //reg_file������data1
+ assign ds_to_es_bus[95:  64] = rkd_value; //reg_file������data2
+-assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����????
+-assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����??
++assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����?????
++assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����???
+ assign ds_to_es_bus[133:133] = gr_we;     //�Ƿ�д�Ĵ���
+ assign ds_to_es_bus[134:134] = mem_we;    //�Ƿ�д��??
+ assign ds_to_es_bus[146:135] = alu_op;    //alu����??
+ assign ds_to_es_bus[147:147] = src1_is_pc;   //����??1�Ƿ�Ϊpc
+ assign ds_to_es_bus[148:148] = src2_is_imm;  //����??2�Ƿ�Ϊ������
+-assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�??
++assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�???
+ */
+ wire [31:0] es_pc;
+ wire [31:0] es_rj_value;
+@@ -59,7 +59,9 @@ always @(posedge clk)
+         if(reset)
+             ds_to_es_bus_reg <= 0;
+         else if(ds_to_es_valid && es_allow_in)
+-            ds_to_es_bus_reg <= ds_to_es_bus; 
++            ds_to_es_bus_reg <= ds_to_es_bus;
++        else
++            ds_to_es_bus_reg <= 0; 
+     end
+ 
+ assign {es_res_from_mem, es_src2_is_imm, es_src1_is_pc,
+@@ -81,7 +83,7 @@ assign es_to_ms_bus[70:39] = es_alu_result;
+ 
+ /*-------------------------与alu接口---------------------*/
+ 
+-//wire [31:0] es_alu_result; 在上面定义是因为上面用了此信�???
++//wire [31:0] es_alu_result; 在上面定义是因为上面用了此信�????
+ wire [31:0] alu_src1;
+ wire [31:0] alu_src2;
+ 
+@@ -99,12 +101,12 @@ alu u_alu(
+ 
+ 
+ /*-------------------------valid-------------------------*/
+-reg es_valid;    //valid信号表示这一级流水缓存是否有�????
++reg es_valid;    //valid信号表示这一级流水缓存是否有�?????
+ 
+ wire es_ready_go;
+ assign es_ready_go = 1'b1;
+-assign es_allow_in = es_ready_go && ms_allow_in;
+-assign es_to_ms_valid = es_valid;
++assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
++assign es_to_ms_valid = es_valid && es_ready_go;
+ 
+ always @(posedge clk)
+     begin
+@@ -123,7 +125,7 @@ assign data_sram_addr  = es_alu_result;
+ assign data_sram_wdata = es_rkd_value;        //st_w指令写的是rd的value
+ /*--------------------------------------------------------*/
+ 
+-/*-----------------------发送es_to_ds_bus----------------*/
++/*-----------------------发�?�es_to_ds_bus----------------*/
+ assign es_to_ds_bus = {es_gr_we,es_dest};
+ 
+ /*-------------------------------------------------------*/
+diff --git a/cyt_code/for_patch/stage2_ID.v b/cyt_code/for_patch/ID.v
+similarity index 81%
+rename from cyt_code/for_patch/stage2_ID.v
+rename to cyt_code/for_patch/ID.v
+index dbc4538..3eb3b1f 100644
+--- a/cyt_code/for_patch/stage2_ID.v
++++ b/cyt_code/for_patch/ID.v
+@@ -20,10 +20,10 @@ module stage2_ID(
+     input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
+     output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
+ 
+-    //ws_to_ds_bus 承载 寄存器的写信号，写地�????与写数据
++    //ws_to_ds_bus 承载 寄存器的写信号，写地�?????与写数据
+     //从wback阶段 送来 decode阶段 
+     input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
+-    //br_bus 承载 br_taken �???? br_target 
++    //br_bus 承载 br_taken �????? br_target 
+     //从decode阶段 送往 fetch阶段
+     output [`WIDTH_BR_BUS-1:0] br_bus,
+ 
+@@ -31,7 +31,7 @@ module stage2_ID(
+     input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
+ );
+ 
+-/*-------------------------解码及控制信�????--------------------------*/
++/*-------------------------解码及控制信�?????--------------------------*/
+ wire [31:0] inst;
+ 
+ wire        br_taken;
+@@ -126,10 +126,10 @@ decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
+ assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
+ //sun_w: rd = rj - rk   asm: sub.w rd, rj, rk
+ assign inst_sub_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
+-//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (视作有符号整数比较大�????)
++//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (视作有符号整数比较大�?????)
+ //asm: slt rd, rj, rk
+ assign inst_slt    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h04];
+-//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (视作无符号整数比较大�????)
++//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (视作无符号整数比较大�?????)
+ //asm: sltu rd, rj, rk
+ assign inst_sltu   = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h05];
+ //nor: rd = ~(rj | rk)   asm: nor rd, rj, rk
+@@ -194,7 +194,7 @@ assign need_si26  =  inst_b | inst_bl;
+ //加法器第二个操作数�?�择—�?�是否为4
+ assign src2_is_4  =  inst_jirl | inst_bl;   
+ 
+-//branch的跳转地�????目前只有两种—�?�si26与si16
++//branch的跳转地�?????目前只有两种—�?�si26与si16
+ assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :   
+                              {{14{i16[15]}}, i16[15:0], 2'b0} ;   
+ //jirl_offs单独列出主要是因为它不是b类型指令，也方便后序拓展
+@@ -209,7 +209,7 @@ assign rj_eq_rd = (rj_value == rkd_value);
+ /*----------------------------------------------------------------*/
+ 
+ /*-----------------------接收fs_to_ds_bus----------------*/
+-//wire [31:0] inst; 定义在前�???   
++//wire [31:0] inst; 定义在前�????   
+ wire [31:0] ds_pc;
+ 
+ reg [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus_reg;
+@@ -241,9 +241,13 @@ assign {ms_we,ms_dest} = ms_to_ds_bus;
+ /*-----------------------发�?�br_bus----------------------*/
+ assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)   
+                    || inst_jirl || inst_bl || inst_b) && ds_valid;
++
++wire br_taken_cancel;
++//assign br_taken_cancel = (inst_beq || inst_bne || inst_jirl || inst_bl || inst_b) && ds_valid;
++
+ assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (ds_pc + br_offs) :   
+                                                    /*inst_jirl*/ (rj_value + jirl_offs); 
+-assign br_bus = {br_taken,br_target};           
++assign br_bus = {br_taken_cancel,br_taken,br_target};           
+ /*-------------------------------------------------------*/
+ 
+ /*-----------------------发�?�ds_to_es_bus----------------*/
+@@ -290,35 +294,90 @@ assign res_from_mem  = inst_ld_w;
+ assign ds_to_es_bus[31:   0] = ds_pc;        //pc����fetch��???��execute
+ assign ds_to_es_bus[63:  32] = rj_value;  //reg_file������data1
+ assign ds_to_es_bus[95:  64] = rkd_value; //reg_file������data2
+-assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����????
+-assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����??
++assign ds_to_es_bus[127: 96] = imm;       //ѡ��õ�����?????
++assign ds_to_es_bus[132:128] = dest;      //д��Ĵ�����???
+ assign ds_to_es_bus[133:133] = gr_we;     //�Ƿ�д�Ĵ���
+ assign ds_to_es_bus[134:134] = mem_we;    //�Ƿ�д��??
+ assign ds_to_es_bus[146:135] = alu_op;    //alu����??
+ assign ds_to_es_bus[147:147] = src1_is_pc;   //����??1�Ƿ�Ϊpc
+ assign ds_to_es_bus[148:148] = src2_is_imm;  //����??2�Ƿ�Ϊ������
+-assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�??
++assign ds_to_es_bus[149:149] = res_from_mem; //д�Ĵ�������Ƿ������ڴ�???
+ /*-------------------------------------------------------*/
+ 
+ /*--------------------------------valid---------------------------*/
+-reg ds_valid;    //valid信号表示这一级流水缓存是否有�????
+-//处理写后读冲�?
++reg ds_valid;    //valid信号表示这一级流水缓存是否有�?????
++//处理写后读冲�??
++wire if_read_addr1;   //�Ƿ���Ĵ�����addr1
++wire if_read_addr2;   //�Ƿ���Ĵ�����addr2
++
++assign if_read_addr1 = ~inst_b && ~inst_bl;
++assign if_read_addr2 = inst_beq || inst_bne || inst_xor || inst_or || inst_and || inst_nor ||
++                       inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w;
++
++wire if_crush_addr;    //addr�Ƿ����д��??
++
++assign if_crush_addr = ex_crush || mem_crush || wb_crush;
++
++/*
++reg skip_ex;
++reg skip_mem;
++reg skip_wb;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            skip_ex <= 1'b0;
++        else if(ex_crush)
++            skip_ex <= 1'b1;
++        else if(ds_ready_go)
++            skip_ex <= 1'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            skip_mem <= 1'b0;
++        else if(mem_crush && !ex_crush)
++            skip_mem <= 1'b1;
++        else if(ds_ready_go)
++            skip_mem <= 1'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            skip_wb <= 1'b0;
++        else if(wb_crush && !mem_crush)
++            skip_wb <= 1'b1;
++        else if(ds_ready_go)
++            skip_wb <= 1'b0;
++    end
++*/
++
++wire ex_crush;
++assign ex_crush = ((es_we && es_dest!=0) && ( (if_read_addr1 && rf_raddr1==es_dest) || (if_read_addr2 && rf_raddr2==es_dest) )); // && !skip_ex;
++wire mem_crush;
++assign mem_crush = ((ms_we && ms_dest!=0) && ( (if_read_addr1 && rf_raddr1==ms_dest) || (if_read_addr2 && rf_raddr2==ms_dest) )); // && !skip_mem;
++wire wb_crush;
++assign wb_crush = ((rf_we && rf_waddr!=0) && ( (if_read_addr1 && rf_raddr1==rf_waddr) || (if_read_addr2 && rf_raddr2==rf_waddr) )); // && !skip_wb;
+ 
+ wire ds_ready_go;
+-assign ds_ready_go = 1'b1;   
+-assign ds_allow_in = ds_ready_go && es_allow_in;
+-assign ds_to_es_valid = ds_valid;
++assign ds_ready_go = ~if_crush_addr;         
++assign ds_allow_in = !ds_valid || ds_ready_go && es_allow_in;
++assign ds_to_es_valid = ds_valid && ds_ready_go;
++
++//当数据冲突，ds_ready_go拉低，ds_allow_in对应拉低，ds_to_es_valid对应拉低
++
++assign br_taken_cancel =  if_crush_addr ? 1'b0 : br_taken;
+ 
+ always @(posedge clk)
+     begin
+         if(reset)
+             ds_valid <= 1'b0;
+-        else if(br_taken)
++        else if(br_taken_cancel)
+             ds_valid <= 1'b0;
+         else if(ds_allow_in)
+             ds_valid <= fs_to_ds_valid;
+-        else
+-            ds_valid <= 1'b0;
+     end
+ /*----------------------------------------------------------------*/
+ 
+@@ -337,7 +396,7 @@ regfile u_regfile(
+     );
+ /*
+ assign {rf_we,rf_waddr,rf_wdata} = ws_to_ds_bus;
+-意在强调提醒此时的we，waddr和wdata来自wb阶段发来的信�????
++意在强调提醒此时的we，waddr和wdata来自wb阶段发来的信�?????
+ */
+ /*----------------------------------------------------------------*/
+ 
+diff --git a/cyt_code/for_patch/stage1_IF.v b/cyt_code/for_patch/IF.v
+similarity index 72%
+rename from cyt_code/for_patch/stage1_IF.v
+rename to cyt_code/for_patch/IF.v
+index 0add2d6..a2c1471 100644
+--- a/cyt_code/for_patch/stage1_IF.v
++++ b/cyt_code/for_patch/IF.v
+@@ -25,27 +25,33 @@ module stage1_IF(
+ 
+ /*--------------------------------valid-----------------------------*/
+ 
+-reg fs_valid;    //valid信号表示这一级流水缓存是否有�?????
++reg fs_valid;    //valid信号表示这一级流水缓存是否有�??????
+ 
+ //对fs_valid来说，只要取消reset，相当去前一阶段对它发来的valid信号
+ wire pre_if_to_fs_valid;
+ assign pre_if_to_fs_valid = !reset;
+ 
+-//fs_valid拉高的另�?????个条件是下一阶段的allow_in信号—�?�ds_allow_in
++//fs_valid拉高的另�??????个条件是下一阶段的allow_in信号—�?�ds_allow_in
+ wire fs_ready_go;
+ 
+ always @(posedge clk)
+     begin
+         if(reset)
+             fs_valid <= 1'b0;
+-        else if(ds_allow_in && fs_ready_go)
++        else if(fs_allow_in)
+             fs_valid <= pre_if_to_fs_valid;
++        /*
++        else if(br_taken_cancel)
++            fs_valid <= 1'b0;
++        */
+     end
+ 
+ //将output-fs_to_ds_valid与reg fs_valid连接
+-//考虑到后序可能一个clk完成不了FETCH，先增设fs_ready信号并始终拉�?????
++//考虑到后序可能一个clk完成不了FETCH，先增设fs_ready信号并始终拉�??????
+ assign fs_ready_go = 1'b1;
+-assign fs_to_ds_valid = fs_valid;
++wire fs_allow_in;
++assign fs_allow_in = !fs_valid || fs_ready_go && ds_allow_in;
++assign fs_to_ds_valid = fs_valid && fs_ready_go;
+ 
+ /*----------------------------------------------------------------*/
+ 
+@@ -53,14 +59,15 @@ assign fs_to_ds_valid = fs_valid;
+ 
+ wire [31:0] br_target;  //跳转地址
+ wire br_taken;          //是否跳转
++wire br_taken_cancel;
+ //br_taken和br_target来自br_bus
+-assign {br_taken,br_target} = br_bus;
++assign {br_taken_cancel,br_taken,br_target} = br_bus;
+ 
+ reg [31:0] fetch_pc; 
+ 
+ wire [31:0] seq_pc;     //顺序取址
+ assign seq_pc = fetch_pc + 4;
+-wire [31:0] next_pc;    //nextpc来自seq或br,是�?�至ram的pc�?????
++wire [31:0] next_pc;    //nextpc来自seq或br,是�?�至ram的pc�??????
+ assign next_pc = br_taken? br_target : seq_pc;
+    
+ always @(posedge clk)
+@@ -73,14 +80,14 @@ always @(posedge clk)
+ 
+ /*----------------------------------------------------------------*/
+ 
+-/*----------------------------与inst_ram的接�?????---------------------*/
++/*----------------------------与inst_ram的接�??????---------------------*/
+ 
+ /*
+-    output inst_sram_en,                //读使�?????
+-    output [3:0] inst_sram_wen,         //写使�?????
+-    output [31:0] inst_sram_addr,       //读地�?????
+-    output [31:0] inst_sram_wdata,      //写数�?????
+-    input [31:0] inst_sram_rdata        //读到的数�?????-inst
++    output inst_sram_en,                //读使�??????
++    output [3:0] inst_sram_wen,         //写使�??????
++    output [31:0] inst_sram_addr,       //读地�??????
++    output [31:0] inst_sram_wdata,      //写数�??????
++    input [31:0] inst_sram_rdata        //读到的数�??????-inst
+ */
+ 
+ assign inst_sram_en = pre_if_to_fs_valid && ds_allow_in;
+@@ -92,7 +99,7 @@ assign inst_sram_wdata = 32'b0;
+ 
+ /*----------------------------发�?�fs_to_ds_bus------------------------*/
+ //要�?�往decode阶段的数据有PC与INST
+-//pc与inst�?????32位，因此fs_to_ds_bus�?????64�?????
++//pc与inst�??????32位，因此fs_to_ds_bus�??????64�??????
+ wire [31:0] fetch_inst;
+ assign fetch_inst = inst_sram_rdata;
+ assign fs_to_ds_bus = {fetch_inst,fetch_pc};
+diff --git a/cyt_code/for_patch/stage4_MEM.v b/cyt_code/for_patch/MEM.v
+similarity index 90%
+rename from cyt_code/for_patch/stage4_MEM.v
+rename to cyt_code/for_patch/MEM.v
+index d8f3bad..e1656ff 100644
+--- a/cyt_code/for_patch/stage4_MEM.v
++++ b/cyt_code/for_patch/MEM.v
+@@ -46,6 +46,8 @@ always @(posedge clk)
+             es_to_ms_bus_reg <= 0;
+         else if(es_to_ms_valid && ms_allow_in)
+             es_to_ms_bus_reg <= es_to_ms_bus;
++        else
++            es_to_ms_bus_reg <= 0;
+     end 
+ 
+ assign {ms_alu_result, ms_dest, ms_res_from_mem,
+@@ -66,12 +68,12 @@ assign ms_to_ws_bus[69:38] = ms_final_result;
+ /*-------------------------------------------------------*/
+ 
+ /*--------------------------valid------------------------*/
+-reg ms_valid;    //valid信号表示这一级流水缓存是否有�???
++reg ms_valid;    //valid信号表示这一级流水缓存是否有�????
+ 
+ wire ms_ready_go;
+ assign ms_ready_go = 1'b1;
+-assign ms_allow_in = ms_ready_go && ws_allow_in;
+-assign ms_to_ws_valid = ms_valid;
++assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
++assign ms_to_ws_valid = ms_valid && ms_ready_go;
+ 
+ always @(posedge clk)
+     begin
+@@ -83,7 +85,7 @@ always @(posedge clk)
+ 
+ /*-------------------------------------------------------*/
+ 
+-/*--------------------发送ms_to_ds_bus-------------------*/
++/*--------------------发�?�ms_to_ds_bus-------------------*/
+ assign ms_to_ds_bus = {ms_gr_we,ms_dest};
+ /*-------------------------------------------------------*/
+ 
+diff --git a/cyt_code/for_patch/stage5_WB.v b/cyt_code/for_patch/WB.v
+similarity index 93%
+rename from cyt_code/for_patch/stage5_WB.v
+rename to cyt_code/for_patch/WB.v
+index af9d569..e25f344 100644
+--- a/cyt_code/for_patch/stage5_WB.v
++++ b/cyt_code/for_patch/WB.v
+@@ -46,6 +46,8 @@ always @(posedge clk)
+             ms_to_ws_bus_reg <= 0;
+         else if(ms_to_ws_valid && ws_allow_in)
+             ms_to_ws_bus_reg <= ms_to_ws_bus;
++        else
++            ms_to_ws_bus_reg <= 0;
+     end 
+ 
+ assign {ws_final_result, ws_dest,
+@@ -55,7 +57,7 @@ assign {ws_final_result, ws_dest,
+ 
+ /*----------------------发�?�ws_to_ds_bus-----------------*/
+ 
+-reg ws_valid;    //valid信号表示这一级流水缓存是否有�???
++reg ws_valid;    //valid信号表示这一级流水缓存是否有�????
+ 
+ wire ws_we;
+ assign ws_we = ws_gr_we && ws_valid;
+@@ -71,10 +73,10 @@ assign ws_to_ds_bus[37:37] = ws_we;
+ /*-------------------------------------------------------*/
+ 
+ /*--------------------------valid------------------------*/
+-//reg ws_valid;    //valid信号表示这一级流水缓存是否有效，在上面定义是因为上面用了此信�???
++//reg ws_valid;    //valid信号表示这一级流水缓存是否有效，在上面定义是因为上面用了此信�????
+ wire ws_ready_go;
+ assign ws_ready_go = 1'b1;
+-assign ws_allow_in = ws_ready_go;
++assign ws_allow_in = !ws_valid || ws_ready_go;
+ 
+ always @(posedge clk)
+     begin
+diff --git a/cyt_code/for_patch/mycpu_top.v b/cyt_code/for_patch/mycpu_top.v
+index bc39693..27103a1 100644
+--- a/cyt_code/for_patch/mycpu_top.v
++++ b/cyt_code/for_patch/mycpu_top.v
+@@ -1,4 +1,4 @@
+-`define WIDTH_BR_BUS       33
++`define WIDTH_BR_BUS       34
+ `define WIDTH_FS_TO_DS_BUS 64
+ `define WIDTH_DS_TO_ES_BUS 150
+ `define WIDTH_ES_TO_MS_BUS 71
+@@ -6,6 +6,13 @@
+ `define WIDTH_WS_TO_DS_BUS 38
+ `define WIDTH_ES_TO_DS_BUS 6
+ `define WIDTH_MS_TO_DS_BUS 6
++/*
++`include "stage1_IF.v"
++`include "stage2_ID.v"
++`include "stage3_EX.v"
++`include "stage4_MEM.v"
++`include "stage5_WB.v"
++*/
+ 
+ module mycpu_top(
+     input  wire        clk,
+@@ -50,23 +57,6 @@ wire [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus;
+ wire [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus;
+ 
+ /*---------------------------FETCH--------------------------*/
+-/*
+-module stage1_IF(
+-    input clk,
+-    input reset,
+-    input ds_allow_in,
+-    input [`WIDTH_BR_BUS-1:0] br_bus,
+-    output fs_to_ds_valid,
+-    output [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
+-
+-    output inst_sram_en,
+-    output [3:0] inst_sram_wen,
+-    output [31:0] inst_sram_addr,
+-    output [31:0] inst_sram_wdata,
+-
+-    input [31:0] inst_sram_rdata
+-);
+-*/
+ 
+ stage1_IF fetch(
+     .clk                (clk),
+@@ -86,28 +76,6 @@ stage1_IF fetch(
+ 
+ 
+ /*---------------------------DECODE--------------------------*/
+-/*
+-module stage2_ID(
+-    input clk,
+-    input reset,
+-
+-    input es_allow_in,
+-    output ds_allow_in,
+-
+-    input fs_to_ds_valid,
+-    output ds_to_es_valid, 
+-
+-    input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
+-    output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
+-
+-    //ws_to_ds_bus 承载 寄存器的写信号，写地�?????与写数据
+-    //从wback阶段 送来 decode阶段 
+-    input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
+-    //br_bus 承载 br_taken �????? br_target 
+-    //从decode阶段 送往 fetch阶段
+-    output [`WIDTH_BR_BUS-1:0] br_bus,
+-);
+-*/
+ 
+ stage2_ID decode(
+     .clk                (clk),
+@@ -133,26 +101,6 @@ stage2_ID decode(
+ 
+ 
+ /*---------------------------EXCUTE-------------------------*/
+-/*
+-module stage3_EX(
+-    input clk,
+-    input reset,
+-
+-    input ms_allow_in,
+-    output es_allow_in,
+-
+-    input ds_to_es_valid,
+-    output es_to_ms_valid,
+-
+-    input [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
+-    output [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
+-
+-    output data_sram_en,
+-    output [3:0]data_sram_wen,
+-    output [31:0] data_sram_addr,
+-    output [31:0] data_sram_wdata
+-);
+-*/
+ 
+ stage3_EX ex(
+     .clk                (clk),
+@@ -177,23 +125,6 @@ stage3_EX ex(
+ /*----------------------------------------------------------*/
+ 
+ /*---------------------------MEM----------------------------*/
+-/*
+-module stage4_MEM(
+-    input clk,
+-    input reset,
+-
+-    input ws_allow_in,
+-    output ms_allow_in,
+-
+-    input es_to_ms_valid,
+-    output ms_to_ws_valid,
+-
+-    input [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
+-    output [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
+-    
+-    input [31:0] data_sram_rdata
+-);
+-*/
+ 
+ stage4_MEM mem(
+     .clk                (clk),
+@@ -215,26 +146,6 @@ stage4_MEM mem(
+ /*----------------------------------------------------------*/
+ 
+ /*---------------------------WBACK--------------------------*/
+-/*
+-module stage5_WB(
+-    input clk,
+-    input reset,
+-
+-    //no allow in
+-    output ws_allow_in,
+-
+-    input ms_to_ws_valid,
+-    //no to valid
+-
+-    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
+-    output [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
+-
+-    output [31:0] debug_wb_pc     ,
+-    output [ 3:0] debug_wb_rf_we ,
+-    output [ 4:0] debug_wb_rf_wnum,
+-    output [31:0] debug_wb_rf_wdata
+-);
+-*/
+ 
+ stage5_WB wb(
+     .clk                (clk),
+@@ -255,4 +166,5 @@ stage5_WB wb(
+ 
+ /*----------------------------------------------------------*/
+ 
+-endmodule
+\ No newline at end of file
++endmodule
++
+-- 
+2.36.1.windows.1
+
