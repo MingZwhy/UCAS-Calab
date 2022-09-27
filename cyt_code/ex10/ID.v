@@ -1,6 +1,6 @@
 `define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
-`define WIDTH_DS_TO_ES_BUS 153
+`define WIDTH_DS_TO_ES_BUS 156
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
@@ -239,18 +239,18 @@ assign inst_sll_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_
 * tmp = SRL(rj, rk[4:0])
 * rd = tmp
 */
-assign inst_srl_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h10];
+assign inst_srl_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0f];
 
 /*sra.w: sra.w rd, rj, rk
 * tmp = SRA(rj, rk[4:0])
 * rd = tmp
 */
-assign inst_sra_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0f];
+assign inst_sra_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h10];
 
 /*pcaddu12i rd, si20
 * rd = pc + SignExtend({si20, 12'b0})
 */
-assign inst_pcaddu12i = op_31_26_d[6'he];
+assign inst_pcaddu12i = op_31_26_d[6'h7] & ~inst[25];
 
 /*mul.w mul.w rd, rj, rk
 * product = signed(rj) * signed(rk)
@@ -380,7 +380,7 @@ assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b;
 assign mem_we        = inst_st_w;
 
 assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
-                    | inst_jirl | inst_bl;
+                    | inst_jirl | inst_bl | inst_pcaddu12i;
 assign alu_op[ 1] = inst_sub_w;
 assign alu_op[ 2] = inst_slt | inst_slti;
 assign alu_op[ 3] = inst_sltu | inst_sltui;
@@ -416,6 +416,17 @@ assign src2_is_imm   = inst_slli_w |    //checked
 
 assign res_from_mem  = inst_ld_w;
 
+wire need_wait_div;        //if ex need waiting result of div
+assign need_wait_div = inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu;
+wire [1:0] div_op;
+/* div_op = 
+* 2'b00: div_w
+* 2'b01: div_wu
+* 2'b10: mod_w
+* 2'b11: mod_wu
+*/ 
+assign div_op = inst_div_w ? 2'b00 : inst_div_wu ? 2'b01 : inst_mod_w ? 2'b10 : 2'b11; 
+
 assign ds_to_es_bus[31:   0] = ds_pc;        
 assign ds_to_es_bus[63:  32] = rj_value;  
 assign ds_to_es_bus[95:  64] = rkd_value; 
@@ -427,6 +438,8 @@ assign ds_to_es_bus[149:135] = alu_op;
 assign ds_to_es_bus[150:150] = src1_is_pc;   
 assign ds_to_es_bus[151:151] = src2_is_imm;  
 assign ds_to_es_bus[152:152] = res_from_mem; 
+assign ds_to_es_bus[153:153] = need_wait_div;
+assign ds_to_es_bus[155:154] = div_op;
 /*-------------------------------------------------------*/
 
 /*--------------------------------valid---------------------------*/
