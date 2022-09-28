@@ -1,0 +1,17 @@
+EX11:
+（1）assign src_reg_is_rd = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_w | inst_st_b | inst_st_h;
+忘了考虑4条新增的b指令以及两条新增的st指令
+（2）assign mem_we        = inst_st_w | inst_st_b | inst_st_h;
+忘了考虑新增的两条st指令
+（3）st_b写的内容是rd的低8位，st_h写的内容是rd的低16位
+assign real_wdata = es_st_op[0] ? es_rkd_value :
+                    es_st_op[1] ? {4{es_rkd_value[7:0]}} :
+                    es_st_op[2] ? {2{es_rkd_value[15:0]}} : 32'b0;
+
+（4）mem_byte = 的右边是data_sram_rdata而非mem_result
+（5）wire [31:0] adver_rkd_value;
+assign adver_rkd_value = ~rkd_value;
+处误把adver_rkd_value定义为1位
+
+（6）assign res_from_mem  = inst_ld_w || inst_ld_b || inst_ld_bu || inst_ld_h || inst_ld_hu;
+忘记新增的4条b指令
