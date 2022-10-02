@@ -235,13 +235,23 @@ assign inst_slli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & o
 assign inst_srli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h09];
 assign inst_srai_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h11];
 assign inst_addi_w = op_31_26_d[6'h00] & op_25_22_d[4'ha];
+assign inst_ld_b   = op_31_26_d[6'h0a] & op_25_22_d[4'h0];
+assign inst_ld_h   = op_31_26_d[6'h0a] & op_25_22_d[4'h1];
+assign inst_ld_bu  = op_31_26_d[6'h0a] & op_25_22_d[4'h8];
+assign inst_ld_hu  = op_31_26_d[6'h0a] & op_25_22_d[4'h9];
 assign inst_ld_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h2];
+assign inst_st_b  = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
+assign inst_st_h  = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
 assign inst_st_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h6];
 assign inst_jirl   = op_31_26_d[6'h13];
 assign inst_b      = op_31_26_d[6'h14];
 assign inst_bl     = op_31_26_d[6'h15];
 assign inst_beq    = op_31_26_d[6'h16];
 assign inst_bne    = op_31_26_d[6'h17];
+assign inst_blt    = op_31_26_d[6'h18];
+assign inst_bge    = op_31_26_d[6'h19];
+assign inst_bltu   = op_31_26_d[6'h1a];
+assign inst_bgeu   = op_31_26_d[6'h1b];
 assign inst_lu12i_w= op_31_26_d[6'h05] & ~id_inst[25];
 
 assign inst_slti   = op_31_26_d[6'h00] & op_25_22_d[4'h8];
@@ -261,19 +271,6 @@ assign inst_div_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & o
 assign inst_mod_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h03];
 assign inst_pcaddu12i= op_31_26_d[6'h07] & ~id_inst[25];
 
-assign inst_blt    = op_31_26_d[6'h18];
-assign inst_bge    = op_31_26_d[6'h19];
-assign inst_bltu   = op_31_26_d[6'h1a];
-assign inst_bgeu   = op_31_26_d[6'h1b];
-
-assign inst_ld_b   = op_31_26_d[6'h0a] & op_25_22_d[4'h0];
-assign inst_ld_h   = op_31_26_d[6'h0a] & op_25_22_d[4'h1];
-assign inst_ld_bu  = op_31_26_d[6'h0a] & op_25_22_d[4'h8];
-assign inst_ld_hu  = op_31_26_d[6'h0a] & op_25_22_d[4'h9];
-
-assign inst_st_b  = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
-assign inst_st_h  = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
-
 assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
                     | inst_jirl | inst_bl | inst_pcaddu12i 
                     | inst_ld_b | inst_ld_h |inst_ld_bu | inst_ld_hu
@@ -289,6 +286,15 @@ assign alu_op[ 8] = inst_slli_w | inst_sll;
 assign alu_op[ 9] = inst_srli_w | inst_srl;
 assign alu_op[10] = inst_srai_w | inst_sra;
 assign alu_op[11] = inst_lu12i_w;
+
+assign mulop = (inst_mul_w)?2'b01:(inst_mulh_w)?2'b11:(inst_mulh_wu)?2'b10:2'b00;
+assign divop = {{inst_div_w|inst_div_wu|inst_mod_w|inst_mod_wu},{inst_div_w|inst_div_wu},{inst_div_w|inst_mod_w}};
+assign load_op[2] = inst_ld_w;
+assign load_op[1] = inst_ld_h | inst_ld_hu;
+assign load_op[0] = inst_ld_b | inst_ld_h | inst_ld_w; 
+assign store_op[2]= inst_st_b | inst_st_h | inst_st_w;
+assign store_op[1]= inst_st_w;
+assign store_op[0]= inst_st_h;
 
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
 assign need_si12  =  inst_addi_w | inst_ld_w | inst_ld_b | inst_ld_h |inst_ld_bu | inst_ld_hu | inst_st_w | inst_st_b | inst_st_h | inst_slti | inst_sltui;
@@ -375,14 +381,6 @@ assign br_taken =  (~br_go)?
 assign br_target = (inst_beq || inst_bne || inst_blt || inst_bge || inst_bltu || inst_bgeu || inst_bl || inst_b) ? (IDreg[63:32] + br_offs) :
                                                    /*inst_jirl*/ (rdata1 + jirl_offs);
 
-assign mulop = (inst_mul_w)?2'b01:(inst_mulh_w)?2'b11:(inst_mulh_wu)?2'b10:2'b00;
-assign divop = {{inst_div_w|inst_div_wu|inst_mod_w|inst_mod_wu},{inst_div_w|inst_div_wu},{inst_div_w|inst_mod_w}};
-assign load_op[2] = inst_ld_w;
-assign load_op[1] = inst_ld_h | inst_ld_hu;
-assign load_op[0] = inst_ld_b | inst_ld_h | inst_ld_w; 
-assign store_op[2]= inst_st_b | inst_st_h | inst_st_w;
-assign store_op[1]= inst_st_w;
-assign store_op[0]= inst_st_h;
 
 assign alu_src1 = src1_is_pc  ? IDreg[63:32] : rj_value;
 assign alu_src2 = src2_is_imm ? imm : rkd_value;
@@ -517,18 +515,6 @@ end
 assign data_sram_en =1'b1;
 assign inst_sram_en =1'b1;
 
-/*always@(posedge clk)
-begin
-    mem_readygo <=1'b1;
-    wb_readygo <=1'b1;
-end
-always@(posedge clk)
-begin
-    if(divop[2]&&~div_stop&&~isadv)
-        ex_readygo <= 1'b0;
-    else 
-        ex_readygo <= 1'b1;
-end*/
 assign id_readygo = (EXEreg[184]&&~div_stop)?1'b0:1'b1;
 assign ex_readygo = (EXEreg[184]&&~div_stop)?1'b0:1'b1;
 assign mem_readygo= 1'b1;
