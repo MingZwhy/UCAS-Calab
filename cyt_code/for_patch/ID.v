@@ -1,6 +1,6 @@
 `define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
-`define WIDTH_DS_TO_ES_BUS 150
+`define WIDTH_DS_TO_ES_BUS 156
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
@@ -20,24 +20,23 @@ module stage2_ID(
     input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
     output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
 
-    //ws_to_ds_bus 鎵胯浇 瀵勫瓨鍣ㄧ殑鍐欎俊鍙凤紝鍐欏湴锟�?????涓庡啓鏁版嵁
-    //浠巜back闃舵 閫佹潵 decode闃舵 
+    //ws_to_ds_bus  for write reg_file
     input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
-    //br_bus 鎵胯浇 br_taken 锟�????? br_target 
-    //浠巇ecode闃舵 閫佸線 fetch闃舵
+    //br_bus including br_taken and br_target
+    //deliver back to FETCH module
     output [`WIDTH_BR_BUS-1:0] br_bus,
 
     input [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
     input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
 );
 
-/*-------------------------瑙ｇ爜鍙婃帶鍒朵俊锟�?????--------------------------*/
+/*-------------------------for decode--------------------------*/
 wire [31:0] inst;
 
 wire        br_taken;
 wire [31:0] br_target;
 
-wire [11:0] alu_op;
+wire [14:0] alu_op;
 wire        load_op;
 wire        src1_is_pc;
 wire        src2_is_imm;
@@ -91,8 +90,27 @@ wire        inst_beq;
 wire        inst_bne;
 wire        inst_lu12i_w;
 
+//task10 add inst
+wire        inst_slti;
+wire        inst_sltui;
+wire        inst_andi;
+wire        inst_ori;
+wire        inst_xori;
+wire        inst_sll_w;
+wire        inst_srl_w;
+wire        inst_sra_w;
+wire        inst_pcaddu12i;
+wire        inst_mul_w;
+wire        inst_mulh_w;
+wire        inst_mulh_wu;
+wire        inst_div_w;
+wire        inst_div_wu;
+wire        inst_mod_w;
+wire        inst_mod_wu;
+
 wire        need_ui5;
-wire        need_si12;
+wire        need_SignExtend_si12;
+wire        need_ZeroExtend_si12;
 wire        need_si16;
 wire        need_si20;
 wire        need_si26;
@@ -126,10 +144,10 @@ decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
 assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
 //sun_w: rd = rj - rk   asm: sub.w rd, rj, rk
 assign inst_sub_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
-//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  (瑙嗕綔鏈夌鍙锋暣鏁版瘮杈冨ぇ锟�?????)
+//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  
 //asm: slt rd, rj, rk
 assign inst_slt    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h04];
-//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  (瑙嗕綔鏃犵鍙锋暣鏁版瘮杈冨ぇ锟�?????)
+//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  
 //asm: sltu rd, rj, rk
 assign inst_sltu   = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h05];
 //nor: rd = ~(rj | rk)   asm: nor rd, rj, rk
@@ -141,13 +159,10 @@ assign inst_or     = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & o
 //xor: rd = rj ^ rk  asm: xor rd, rj, rk
 assign inst_xor    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0b];
 //slli.w: rd = SLL(rj, ui5)  asm: slli.w rd, rj, ui5
-//rj涓殑鏁帮拷?锟借緫宸︾Щ鍐欏叆rd
 assign inst_slli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h01];
 //srli.w: rd = SRL(rj, ui5)  asm: srli.w rd, rj, ui5
-//rj涓殑鏁帮拷?锟借緫鍙崇Щ鍐欏叆rd
 assign inst_srli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h09];
 //srai.w: rd = SRA(rj, ui5)  asm: srai.w rd, rj, ui5
-//rj涓殑鏁扮畻鏁板彸绉诲啓鍏d
 assign inst_srai_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h11];
 //addi.w: rd = rj + SignExtend(si12, 32)  asm: addi.w rd, rj, si12
 assign inst_addi_w = op_31_26_d[6'h00] & op_25_22_d[4'ha];
@@ -185,22 +200,114 @@ assign inst_bne    = op_31_26_d[6'h17];
 //rd = {si20, 12'b0}
 assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
 
-//浣跨敤绔嬪嵆鏁扮绫伙拷?锟芥嫨
+//task10 add inst
+
+/*slti: rd, rj, si12
+* tmp = SignExtend(si12, GRLEN)
+* rd = (signed(rj) < signed(tmp)) ? 1 : 0  
+*/
+assign inst_slti = op_31_26_d[6'h0] & op_25_22_d[4'h8];
+
+/*sltui: rd, rj, si12
+* tmp = SignExtend(si12, GRLEN)
+* rd = (unsigned(rj) < unsigned(tmp)) ? 1 : 0  
+*/
+assign inst_sltui = op_31_26_d[6'h0] & op_25_22_d[4'h9];
+
+/*andi: andi rd, rj, ui12
+* rd = rj & ZeroExtend(ui12)
+*/
+assign inst_andi = op_31_26_d[6'h0] & op_25_22_d[4'hd];
+
+/*ori: ori rd, rj, ui12
+* rd = rj | ZeroExtend(ui12)
+*/
+assign inst_ori = op_31_26_d[6'h0] & op_25_22_d[4'he];
+
+/*xori: xori rd, rj, ui12
+* rd = rj ^ ZeroExtend(ui12)
+*/
+assign inst_xori = op_31_26_d[6'h0] & op_25_22_d[4'hf];
+
+/*sll.w: sll.w rd, rj, rk
+* tmp = SLL(rj, rk[4:0])
+* rd = tmp
+*/
+assign inst_sll_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0e];
+
+/*srl.w: srl.w rd, rj, rk
+* tmp = SRL(rj, rk[4:0])
+* rd = tmp
+*/
+assign inst_srl_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0f];
+
+/*sra.w: sra.w rd, rj, rk
+* tmp = SRA(rj, rk[4:0])
+* rd = tmp
+*/
+assign inst_sra_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h10];
+
+/*pcaddu12i rd, si20
+* rd = pc + SignExtend({si20, 12'b0})
+*/
+assign inst_pcaddu12i = op_31_26_d[6'h7] & ~inst[25];
+
+/*mul.w mul.w rd, rj, rk
+* product = signed(rj) * signed(rk)
+* rd = product[31:0]
+*/
+assign inst_mul_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h18];
+
+/*mulh.w mulh.w rd, rj, rk
+* product = signed(rj) * signed(rk)
+* rd = product[63:32]
+*/
+assign inst_mulh_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h19];
+
+/*mulh.wu mulh.wu rd, rj, rk
+* product = unsigned(rj) * unsigned(rk)
+* rd = product[63:32]
+*/
+assign inst_mulh_wu = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h1a];
+
+/*div.w div.w: rd, rj, rk
+* quotient = signed(rj) / signed(rk)
+* rd = quotient[31:0]
+*/
+assign inst_div_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h0];
+
+/*mod.w mod.w: rd, rj, rk
+* remainder = signed(rj) / signed(rk)
+* rd = remainder[31:0]
+*/
+assign inst_mod_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h1];
+
+/*div.wu div.wu: rd, rj, rk
+* quotient = unsigned(rj) / unsigned(rk)
+* rd = quotient[31:0]
+*/
+assign inst_div_wu = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h2];
+
+/*mod.wu mod.wu: rd, rj, rk
+* remainder = unsigned(rj) / unsigned(rk)
+* rd = remainder[31:0]
+*/
+assign inst_mod_wu = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h3];
+
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;  
-assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w;   
+assign need_SignExtend_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui;
+assign need_ZeroExtend_si12  =  inst_andi | inst_ori | inst_xori;
 assign need_si16  =  inst_jirl | inst_beq | inst_bne;       
-assign need_si20  =  inst_lu12i_w;          
+assign need_si20  =  inst_lu12i_w | inst_pcaddu12i;          
 assign need_si26  =  inst_b | inst_bl;      
-//鍔犳硶鍣ㄧ浜屼釜鎿嶄綔鏁帮拷?锟芥嫨鈥旓拷?锟芥槸鍚︿负4
+
 assign src2_is_4  =  inst_jirl | inst_bl;   
 
-//branch鐨勮烦杞湴锟�?????鐩墠鍙湁涓ょ鈥旓拷?锟絪i26涓巗i16
 assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :   
                              {{14{i16[15]}}, i16[15:0], 2'b0} ;   
-//jirl_offs鍗曠嫭鍒楀嚭涓昏鏄洜涓哄畠涓嶆槸b绫诲瀷鎸囦护锛屼篃鏂逛究鍚庡簭鎷撳睍
+
 assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};   
 
-//src_reg_is_rd浠ｈ〃reg_file绗簩涓绔彛鏄惁鎺d锛屽惁鍒欐帴rk
 assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w;
 
 //used for judging br_taken
@@ -208,8 +315,7 @@ assign rj_eq_rd = (rj_value == rkd_value);
 
 /*----------------------------------------------------------------*/
 
-/*-----------------------鎺ユ敹fs_to_ds_bus----------------*/
-//wire [31:0] inst; 瀹氫箟鍦ㄥ墠锟�????   
+/*-----------------------receive fs_to_ds_bus----------------*/
 wire [31:0] ds_pc;
 
 reg [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus_reg;
@@ -223,7 +329,7 @@ always @(posedge clk)
 assign {inst,ds_pc} = fs_to_ds_bus_reg;         //_reg;
 /*-------------------------------------------------------*/
 
-/*-----------------------鎺ユ敹es,ms,ws_to_ds_bus----------------*/
+/*-----------------------receive es,ms,ws_to_ds_bus----------------*/
 wire rf_we;
 wire [4:0] rf_waddr;
 wire [31:0] rf_wdata;
@@ -241,7 +347,7 @@ assign {es_we,es_dest,IF_LOAD,es_wdata} = es_to_ds_bus;
 assign {ms_we,ms_dest,ms_wdata} = ms_to_ds_bus;
 /*-------------------------------------------------------*/
 
-/*-----------------------鍙戯拷?锟絙r_bus----------------------*/
+/*-----------------------deliver br_bus----------------------*/
 assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)   
                    || inst_jirl || inst_bl || inst_b) && ds_valid;
 
@@ -253,34 +359,44 @@ assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (ds_pc + br_off
 assign br_bus = {br_taken_cancel,br_taken,br_target};           
 /*-------------------------------------------------------*/
 
-/*-----------------------鍙戯拷?锟絛s_to_es_bus----------------*/
+/*-----------------------deliver ds_to_es_bus----------------*/
 assign rj_value  = forward_rdata1;   
-assign rkd_value = forward_rdata2;   
-assign imm = src2_is_4 ? 32'h4                      :   
-             need_si20 ? {i20[19:0], 12'b0}         :   
-             need_ui5  ? {27'b0,rk[4:0]}            :   
-             need_si12 ? {{20{i12[11]}}, i12[11:0]} :   
+assign rkd_value = forward_rdata2;
+
+wire [31:0] SignExtend_imm12;
+assign SignExtend_imm12 = {{20{i12[11]}}, i12[11:0]};
+wire [31:0] ZeroExtend_imm12;
+assign ZeroExtend_imm12 = {20'b0, i12[11:0]};
+
+assign imm = src2_is_4 ? 32'h4                       :   
+             need_si20 ? {i20[19:0], 12'b0}          :   
+             need_ui5  ? {27'b0,rk[4:0]}             :   
+             need_SignExtend_si12 ? SignExtend_imm12 :
+             need_ZeroExtend_si12 ? ZeroExtend_imm12 :   
              32'b0 ;
-assign dst_is_r1     = inst_bl;     //涓嶉渶閫佸嚭锛屽彧鏄緟鍔ヾest
+assign dst_is_r1     = inst_bl;     
 assign dest = dst_is_r1 ? 5'd1 : rd;
 assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b;   
 assign mem_we        = inst_st_w;
 
 assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
-                    | inst_jirl | inst_bl;
+                    | inst_jirl | inst_bl | inst_pcaddu12i;
 assign alu_op[ 1] = inst_sub_w;
-assign alu_op[ 2] = inst_slt;
-assign alu_op[ 3] = inst_sltu;
-assign alu_op[ 4] = inst_and;
+assign alu_op[ 2] = inst_slt | inst_slti;
+assign alu_op[ 3] = inst_sltu | inst_sltui;
+assign alu_op[ 4] = inst_and | inst_andi;
 assign alu_op[ 5] = inst_nor;
-assign alu_op[ 6] = inst_or;
-assign alu_op[ 7] = inst_xor;
-assign alu_op[ 8] = inst_slli_w;
-assign alu_op[ 9] = inst_srli_w;
-assign alu_op[10] = inst_srai_w;
+assign alu_op[ 6] = inst_or | inst_ori;
+assign alu_op[ 7] = inst_xor | inst_xori;
+assign alu_op[ 8] = inst_slli_w | inst_sll_w;
+assign alu_op[ 9] = inst_srli_w | inst_srl_w;
+assign alu_op[10] = inst_srai_w | inst_sra_w;
 assign alu_op[11] = inst_lu12i_w;
+assign alu_op[12] = inst_mul_w;
+assign alu_op[13] = inst_mulh_w;
+assign alu_op[14] = inst_mulh_wu;
 
-assign src1_is_pc    = inst_jirl | inst_bl; //checked
+assign src1_is_pc    = inst_jirl | inst_bl | inst_pcaddu12i;
 
 assign src2_is_imm   = inst_slli_w |    //checked
                        inst_srli_w |
@@ -290,32 +406,52 @@ assign src2_is_imm   = inst_slli_w |    //checked
                        inst_st_w   |
                        inst_lu12i_w|
                        inst_jirl   |
-                       inst_bl     ;    
+                       inst_bl     |
+                       inst_slti   |
+                       inst_sltui  |
+                       inst_andi   |
+                       inst_ori    |
+                       inst_xori   |
+                       inst_pcaddu12i;
 
 assign res_from_mem  = inst_ld_w;
 
-assign ds_to_es_bus[31:   0] = ds_pc;        //pc锟斤拷锟斤拷fetch锟斤拷???锟斤拷execute
-assign ds_to_es_bus[63:  32] = rj_value;  //reg_file锟斤拷锟斤拷锟斤拷data1
-assign ds_to_es_bus[95:  64] = rkd_value; //reg_file锟斤拷锟斤拷锟斤拷data2
-assign ds_to_es_bus[127: 96] = imm;       //选锟斤拷玫锟斤拷锟斤拷锟�?????
-assign ds_to_es_bus[132:128] = dest;      //写锟斤拷拇锟斤拷锟斤拷锟�???
-assign ds_to_es_bus[133:133] = gr_we;     //锟角凤拷写锟侥达拷锟斤拷
-assign ds_to_es_bus[134:134] = mem_we;    //锟角凤拷写锟斤拷??
-assign ds_to_es_bus[146:135] = alu_op;    //alu锟斤拷锟斤拷??
-assign ds_to_es_bus[147:147] = src1_is_pc;   //锟斤拷锟斤拷??1锟角凤拷为pc
-assign ds_to_es_bus[148:148] = src2_is_imm;  //锟斤拷锟斤拷??2锟角凤拷为锟斤拷锟斤拷锟斤拷
-assign ds_to_es_bus[149:149] = res_from_mem; //写锟侥达拷锟斤拷锟斤拷锟斤拷欠锟斤拷锟斤拷锟斤拷诖锟�???
+wire need_wait_div;        //if ex need waiting result of div
+assign need_wait_div = inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu;
+wire [1:0] div_op;
+/* div_op = 
+* 2'b00: div_w
+* 2'b01: div_wu
+* 2'b10: mod_w
+* 2'b11: mod_wu
+*/ 
+assign div_op = inst_div_w ? 2'b00 : inst_div_wu ? 2'b01 : inst_mod_w ? 2'b10 : 2'b11; 
+
+assign ds_to_es_bus[31:   0] = ds_pc;        
+assign ds_to_es_bus[63:  32] = rj_value;  
+assign ds_to_es_bus[95:  64] = rkd_value; 
+assign ds_to_es_bus[127: 96] = imm;       
+assign ds_to_es_bus[132:128] = dest;      
+assign ds_to_es_bus[133:133] = gr_we;     
+assign ds_to_es_bus[134:134] = mem_we;    
+assign ds_to_es_bus[149:135] = alu_op;    
+assign ds_to_es_bus[150:150] = src1_is_pc;   
+assign ds_to_es_bus[151:151] = src2_is_imm;  
+assign ds_to_es_bus[152:152] = res_from_mem; 
+assign ds_to_es_bus[153:153] = need_wait_div;
+assign ds_to_es_bus[155:154] = div_op;
 /*-------------------------------------------------------*/
 
 /*--------------------------------valid---------------------------*/
-reg ds_valid;    //valid淇″彿琛ㄧず杩欎竴绾ф祦姘寸紦瀛樻槸鍚︽湁锟�?????
-//澶勭悊鍐欏悗璇诲啿锟�??
-wire if_read_addr1;   //锟角凤拷锟斤拷拇锟斤拷锟斤拷锟絘ddr1
-wire if_read_addr2;   //锟角凤拷锟斤拷拇锟斤拷锟斤拷锟絘ddr2
+reg ds_valid;    
+wire if_read_addr1;   
+wire if_read_addr2;   
 
 assign if_read_addr1 = ~inst_b && ~inst_bl;
 assign if_read_addr2 = inst_beq || inst_bne || inst_xor || inst_or || inst_and || inst_nor ||
-                       inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w;
+                       inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w ||
+                       inst_sll_w || inst_srl_w || inst_sra_w || inst_mul_w || inst_mulh_w || inst_mulh_wu ||
+                       inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu;
 
 wire Need_Block;    //ex_crush & IF_LOAD
 
@@ -347,7 +483,6 @@ assign ds_ready_go = ~Need_Block;
 assign ds_allow_in = !ds_valid || ds_ready_go && es_allow_in;
 assign ds_to_es_valid = ds_valid && ds_ready_go;
 
-//褰撴暟鎹啿绐侊紝ds_ready_go鎷変綆锛宒s_allow_in瀵瑰簲鎷変綆锛宒s_to_es_valid瀵瑰簲鎷変綆
 
 assign br_taken_cancel =  Need_Block ? 1'b0 : br_taken;
 
@@ -362,7 +497,7 @@ always @(posedge clk)
     end
 /*----------------------------------------------------------------*/
 
-/*-------------------------涓巖egfile鎺ュ彛---------------------------*/
+/*-------------------------link reg_file---------------------------*/
 assign rf_raddr1 = rj;  
 assign rf_raddr2 = src_reg_is_rd ? rd : rk; 
 regfile u_regfile(
@@ -375,10 +510,6 @@ regfile u_regfile(
     .waddr  (rf_waddr ),    
     .wdata  (rf_wdata )     
     );
-/*
-assign {rf_we,rf_waddr,rf_wdata} = ws_to_ds_bus;
-鎰忓湪寮鸿皟鎻愰啋姝ゆ椂鐨剋e锛寃addr鍜寃data鏉ヨ嚜wb闃舵鍙戞潵鐨勪俊锟�?????
-*/
 /*----------------------------------------------------------------*/
 
 endmodule

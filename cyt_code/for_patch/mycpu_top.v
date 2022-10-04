@@ -1,6 +1,6 @@
 `define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
-`define WIDTH_DS_TO_ES_BUS 150
+`define WIDTH_DS_TO_ES_BUS 156
 `define WIDTH_ES_TO_MS_BUS 71
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
@@ -107,11 +107,11 @@ module stage2_ID(
     input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
     output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
 
-    //ws_to_ds_bus æ‰¿è½½ å¯„å­˜å™¨çš„å†™ä¿¡å·ï¼Œå†™åœ°ï¿½???????ä¸å†™æ•°æ®
-    //ä»wbacké˜¶æ®µ é€æ¥ decodeé˜¶æ®µ 
+    //ws_to_ds_bus ³ĞÔØ ¼Ä´æÆ÷µÄĞ´ĞÅºÅ£¬Ğ´µØ????????ÓëĞ´Êı¾İ
+    //´Ówback½×¶Î ËÍÀ´ decode½×¶Î 
     input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
-    //br_bus æ‰¿è½½ br_taken ï¿½??????? br_target 
-    //ä»decodeé˜¶æ®µ é€å¾€ fetché˜¶æ®µ
+    //br_bus ³ĞÔØ br_taken ???????? br_target 
+    //´Ódecode½×¶Î ËÍÍù fetch½×¶Î
     output [`WIDTH_BR_BUS-1:0] br_bus,
 );
 */
