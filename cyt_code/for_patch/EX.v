@@ -1,7 +1,7 @@
 `define WIDTH_BR_BUS       34
 `define WIDTH_FS_TO_DS_BUS 64
-`define WIDTH_DS_TO_ES_BUS 156
-`define WIDTH_ES_TO_MS_BUS 71
+`define WIDTH_DS_TO_ES_BUS 164
+`define WIDTH_ES_TO_MS_BUS 78
 `define WIDTH_MS_TO_WS_BUS 70
 `define WIDTH_WS_TO_DS_BUS 38
 `define WIDTH_ES_TO_DS_BUS 39
@@ -40,8 +40,10 @@ assign ds_to_es_bus[149:135] = alu_op;
 assign ds_to_es_bus[150:150] = src1_is_pc;   
 assign ds_to_es_bus[151:151] = src2_is_imm;  
 assign ds_to_es_bus[152:152] = res_from_mem; 
-assign ds_to_es_bus[153:153] = need_wait_div; 
+assign ds_to_es_bus[153:153] = need_wait_div;
 assign ds_to_es_bus[155:154] = div_op;
+assign ds_to_es_bus[160:156] = ld_op;
+assign ds_to_es_bus[163:161] = st_op;
 */
 wire [31:0] es_pc;
 wire [31:0] es_rj_value;
@@ -56,6 +58,8 @@ wire        es_src2_is_imm;
 wire        es_res_from_mem;
 wire        es_need_wait_div;
 wire [1:0]  es_div_op;
+wire [4:0]  es_ld_op;
+wire [2:0]  es_st_op;
 
 reg [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus_reg;
 always @(posedge clk)
@@ -95,8 +99,8 @@ always @(posedge clk)
             init <= 0;
     end
 
-assign {es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm, es_src1_is_pc,
-        es_alu_op, es_mem_we, es_gr_we, es_dest, es_imm,
+assign {es_st_op, es_ld_op, es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm,
+        es_src1_is_pc, es_alu_op, es_mem_we, es_gr_we, es_dest, es_imm,
         es_rkd_value, es_rj_value, es_pc} = ds_to_es_bus_reg;
 /*-------------------------------------------------------*/
 
@@ -106,12 +110,17 @@ wire [31:0] es_alu_result;    //alu result(including mul_result)
 //wire [31:0] div_result;
 wire [31:0] es_calcu_result;  // alu_result or div_result
 assign es_calcu_result = es_need_wait_div ? div_result : es_alu_result;
+//task 11 add Unaligned memory access, we should deliver unaligned info
+wire [1:0] es_unaligned_addr;
+assign es_unaligned_addr = es_alu_result[1:0];
 
 assign es_to_ms_bus[31:0] = es_pc;
 assign es_to_ms_bus[32:32] = es_gr_we;
 assign es_to_ms_bus[33:33] = es_res_from_mem;
 assign es_to_ms_bus[38:34] = es_dest;
 assign es_to_ms_bus[70:39] = es_calcu_result;
+assign es_to_ms_bus[72:71] = es_unaligned_addr;
+assign es_to_ms_bus[77:73] = es_ld_op;
 
 /*-------------------------------------------------------*/
 
@@ -258,10 +267,28 @@ always @(posedge clk)
 /*-------------------------------------------------------*/
 
 /*----------------------link data_sram------------------*/
+//task 11 add Unaligned memory access, so addr[1:0] should be 2'b00
+wire [3:0] w_strb;  //depend on st_op
+/* st_op = (one hot)
+* 3'b001 st_w
+* 3'b010 st_b
+* 5'b100 st_h
+*/
+assign w_strb =  es_st_op[0] ? 4'b1111 :
+                 es_st_op[1] ? (es_unaligned_addr==2'b00 ? 4'b0001 : es_unaligned_addr==2'b01 ? 4'b0010 : 
+                                es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
+                 es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
+
+//consider st_b, st_h
+wire [31:0] real_wdata;
+assign real_wdata = es_st_op[0] ? es_rkd_value :
+                    es_st_op[1] ? {4{es_rkd_value[7:0]}} :
+                    es_st_op[2] ? {2{es_rkd_value[15:0]}} : 32'b0;
+
 assign data_sram_en    = 1'b1;   //allowing reading data_sram
-assign data_sram_wen   = (es_mem_we && es_valid) ? 4'b1111 : 4'b0000;
-assign data_sram_addr  = es_alu_result;
-assign data_sram_wdata = es_rkd_value;        //st_w --> write rd_value into data_sram
+assign data_sram_wen   = (es_mem_we && es_valid) ? w_strb : 4'b0000;
+assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+assign data_sram_wdata = real_wdata;        
 /*--------------------------------------------------------*/
 
 /*-----------------------deliver es_to_ds_bus----------------*/
