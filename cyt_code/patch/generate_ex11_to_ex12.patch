@@ -1,0 +1,2720 @@
+From 83a4ac044826c725fc35f59a4c9d5fcca06d3785 Mon Sep 17 00:00:00 2001
+From: chenyuanteng20 <chenyuanteng20@mails.ucas.ac.cn>
+Date: Sun, 16 Oct 2022 07:53:32 +0800
+Subject: [PATCH] finish ex12
+
+---
+ cyt_code/ex12/EX.v        | 344 +++++++++++++++++
+ cyt_code/ex12/ID.v        | 781 ++++++++++++++++++++++++++++++++++++++
+ cyt_code/ex12/IF.v        | 105 +++++
+ cyt_code/ex12/MEM.v       | 169 +++++++++
+ cyt_code/ex12/WB.v        | 152 ++++++++
+ cyt_code/ex12/alu.v       | 121 ++++++
+ cyt_code/ex12/csr_reg.v   | 475 +++++++++++++++++++++++
+ cyt_code/ex12/mycpu_top.v | 279 ++++++++++++++
+ cyt_code/ex12/regfile.v   |  27 ++
+ cyt_code/ex12/tools.v     |  50 +++
+ cyt_code/ex12/width.vh    | 122 ++++++
+ 11 files changed, 2625 insertions(+)
+ create mode 100644 cyt_code/ex12/EX.v
+ create mode 100644 cyt_code/ex12/ID.v
+ create mode 100644 cyt_code/ex12/IF.v
+ create mode 100644 cyt_code/ex12/MEM.v
+ create mode 100644 cyt_code/ex12/WB.v
+ create mode 100644 cyt_code/ex12/alu.v
+ create mode 100644 cyt_code/ex12/csr_reg.v
+ create mode 100644 cyt_code/ex12/mycpu_top.v
+ create mode 100644 cyt_code/ex12/regfile.v
+ create mode 100644 cyt_code/ex12/tools.v
+ create mode 100644 cyt_code/ex12/width.vh
+
+diff --git a/cyt_code/ex12/EX.v b/cyt_code/ex12/EX.v
+new file mode 100644
+index 0000000..eb12df7
+--- /dev/null
++++ b/cyt_code/ex12/EX.v
+@@ -0,0 +1,344 @@
++`include "width.vh"
++
++module stage3_EX(
++    input clk,
++    input reset,
++    input ertn_flush,
++    input has_int,
++    input wb_ex,
++
++    input ms_allow_in,
++    output es_allow_in,
++
++    input ds_to_es_valid,
++    output es_to_ms_valid,
++
++    input [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
++    output [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
++    output [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
++    input                           if_ms_has_int,
++
++    output data_sram_en,
++    output [3:0]data_sram_wen,
++    output [31:0] data_sram_addr,
++    output [31:0] data_sram_wdata
++);
++
++/*-----------------------閹恒儲鏁筪s_to_es_bus----------------*/
++/*
++assign ds_to_es_bus[31:   0] = ds_pc;        
++assign ds_to_es_bus[63:  32] = rj_value;  
++assign ds_to_es_bus[95:  64] = rkd_value; 
++assign ds_to_es_bus[127: 96] = imm;       
++assign ds_to_es_bus[132:128] = dest;      
++assign ds_to_es_bus[133:133] = gr_we;     
++assign ds_to_es_bus[134:134] = mem_we;    
++assign ds_to_es_bus[149:135] = alu_op;    
++assign ds_to_es_bus[150:150] = src1_is_pc;   
++assign ds_to_es_bus[151:151] = src2_is_imm;  
++assign ds_to_es_bus[152:152] = res_from_mem; 
++assign ds_to_es_bus[153:153] = need_wait_div;
++assign ds_to_es_bus[155:154] = div_op;
++assign ds_to_es_bus[160:156] = ld_op;
++assign ds_to_es_bus[163:161] = st_op;
++
++//task12
++assign ds_to_es_bus[177:164] = ds_csr_num;
++assign ds_to_es_bus[209:178] = ds_csr_wmask;
++assign ds_to_es_bus[210:210] = ds_csr_write;
++assign ds_to_es_bus[211:211] = ds_ertn_flush;
++assign ds_to_es_bus[212:212] = ds_csr;
++assign ds_to_es_bus[213:213] = ds_ex_syscall;
++assign ds_to_es_bus[228:214] = ds_code;
++*/
++wire [31:0] es_pc;
++wire [31:0] es_rj_value;
++wire [31:0] es_rkd_value;
++wire [31:0] es_imm;
++wire [4:0]  es_dest;
++wire        es_gr_we;
++wire        es_mem_we;
++wire [14:0] es_alu_op;
++wire        es_src1_is_pc;
++wire        es_src2_is_imm;
++wire        es_res_from_mem;
++wire        es_need_wait_div;
++wire [1:0]  es_div_op;
++wire [4:0]  es_ld_op;
++wire [2:0]  es_st_op;
++
++//task12
++wire [13:0] es_csr_num;
++wire [31:0] es_csr_wmask;
++wire        es_csr_write;
++wire        es_ertn_flush;
++wire        es_csr;
++wire        es_ex_syscall;
++wire [14:0] es_code;
++
++reg [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus_reg;
++always @(posedge clk)
++    begin
++        if(reset)
++            ds_to_es_bus_reg <= 0;
++        else if(ertn_flush || has_int || wb_ex)
++            ds_to_es_bus_reg <= 0;
++        else if(ds_to_es_valid && es_allow_in)
++            ds_to_es_bus_reg <= ds_to_es_bus;
++        else if(es_need_wait_div)        
++            ds_to_es_bus_reg <= ds_to_es_bus_reg; 
++        else
++            ds_to_es_bus_reg <= 0;
++    end
++
++
++/*init
++* when ds_to_es_bus_reg <= ds_to_es_bus ; init <= 1
++* when es_need_wait_div and ds_to_es_bus_reg keep still, init <= 0
++
++* init = 1 and es_need_wait_div --> raise (un)signed_dividend(divisor)_tvalid
++* so that we can make sure tvalid = 1 and EX at the same time
++
++* other time (un)signed_dividend(divisor)_tvalid = (un)signed_dividend(divisor)_tvalid_reg
++
++* in (un)signed_dividend(divisor)_tvalid_reg
++* when es_need_wait_div && es_div_op && init, (un)signed_dividend(divisor)_tvalid_reg <= 1
++* "init" make sure we will not raise valid after shaking hand
++* when ready (shake hand successfully), (un)signed_dividend(divisor)_tvalid_reg <= 0
++*/
++reg init;
++always @(posedge clk)
++    begin
++        if(reset)
++            init <= 0;
++        else if(ds_to_es_valid && es_allow_in)
++            init <= 1;
++        else
++            init <= 0;
++    end
++
++assign {es_code, es_ex_syscall, es_csr, es_ertn_flush, es_csr_write, es_csr_wmask, es_csr_num,
++        es_st_op, es_ld_op, es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm,
++        es_src1_is_pc, es_alu_op, es_mem_we, es_gr_we, es_dest, es_imm,
++        es_rkd_value, es_rj_value, es_pc} = ds_to_es_bus_reg;
++/*-------------------------------------------------------*/
++
++/*-----------------------deliver es_to_ms_bus----------------*/
++
++wire [31:0] es_alu_result;    //alu result(including mul_result)
++//wire [31:0] div_result;
++wire [31:0] es_calcu_result;  // alu_result or div_result
++assign es_calcu_result = es_need_wait_div ? div_result : es_alu_result;
++//task 11 add Unaligned memory access, we should deliver unaligned info
++wire [1:0] es_unaligned_addr;
++assign es_unaligned_addr = es_alu_result[1:0];
++
++assign es_to_ms_bus[31:0] = es_pc;
++assign es_to_ms_bus[32:32] = es_gr_we;
++assign es_to_ms_bus[33:33] = es_res_from_mem;
++assign es_to_ms_bus[38:34] = es_dest;
++assign es_to_ms_bus[70:39] = es_calcu_result;
++assign es_to_ms_bus[72:71] = es_unaligned_addr;
++assign es_to_ms_bus[77:73] = es_ld_op;
++
++//task12
++assign es_to_ms_bus[91:78] = es_csr_num;
++assign es_to_ms_bus[123:92] = es_csr_wmask;
++assign es_to_ms_bus[124:124] = es_csr_write;
++assign es_to_ms_bus[125:125] = es_ertn_flush;
++assign es_to_ms_bus[126:126] = es_csr;
++
++wire [31:0] es_csr_wvalue;
++assign es_csr_wvalue = es_rkd_value;
++assign es_to_ms_bus[158:127] = es_csr_wvalue;
++assign es_to_ms_bus[159:159] = es_ex_syscall;
++assign es_to_ms_bus[174:160] = es_code;
++
++/*-------------------------------------------------------*/
++
++/*-------------------------link alu---------------------*/
++
++wire [31:0] alu_src1;
++wire [31:0] alu_src2;
++
++assign alu_src1 = es_src1_is_pc  ? es_pc[31:0] : es_rj_value;   
++assign alu_src2 = es_src2_is_imm ? es_imm : es_rkd_value;        
++
++alu u_alu(
++    .alu_op     (es_alu_op    ),
++    .alu_src1   (alu_src1  ),
++    .alu_src2   (alu_src2  ),
++    .alu_result (es_alu_result)
++    );
++
++/*-------------------------------------------------------*/
++
++/*-----------------------deal with div-------------------*/
++wire signed_dividend_tvalid, unsigned_dividend_tvalid;
++wire signed_divisor_tvalid, unsigned_divisor_tvalid;
++wire signed_dividend_tready, unsigned_dividend_tready;
++wire signed_divisor_tready, unsigned_divisor_tready;
++wire signed_out_tvalid, unsigned_out_tvalid;
++
++wire [31:0] signed_dividend, unsigned_dividend;
++wire [31:0] signed_divisor, unsigned_divisor;
++wire [63:0] signed_result, unsigned_result;
++wire [31:0] signed_div_result, unsigned_div_result;
++wire [31:0] signed_mod_result, unsigned_mod_result;
++
++assign signed_dividend = es_rj_value;
++assign unsigned_dividend = es_rj_value;
++assign signed_divisor = es_rkd_value;
++assign unsigned_divisor = es_rkd_value;
++
++assign signed_div_result = signed_result[63:32];
++assign signed_mod_result = signed_result[31:0];
++assign unsigned_div_result = unsigned_result[63:32];
++assign unsigned_mod_result = unsigned_result[31:0];
++
++wire [31:0] div_result;
++assign div_result = (~es_div_op[1] & ~es_div_op[0]) ? signed_div_result :
++                    (~es_div_op[1] &  es_div_op[0]) ? unsigned_div_result :
++                    ( es_div_op[1] & ~es_div_op[0]) ? signed_mod_result :
++                    ( es_div_op[1] &  es_div_op[0]) ? unsigned_mod_result :
++                    32'b0;
++
++div_signed signed_div(
++    .aclk(clk),
++    .s_axis_divisor_tdata(signed_divisor),
++    .s_axis_divisor_tready(signed_divisor_tready),
++    .s_axis_divisor_tvalid(signed_divisor_tvalid),
++    .s_axis_dividend_tdata(signed_dividend),
++    .s_axis_dividend_tready(signed_dividend_tready),
++    .s_axis_dividend_tvalid(signed_dividend_tvalid),
++    .m_axis_dout_tdata(signed_result),
++    .m_axis_dout_tvalid(signed_out_tvalid)
++);
++
++div_unsigned unsigned_div(
++    .aclk(clk),
++    .s_axis_divisor_tdata(unsigned_divisor),
++    .s_axis_divisor_tready(unsigned_divisor_tready),
++    .s_axis_divisor_tvalid(unsigned_divisor_tvalid),
++    .s_axis_dividend_tdata(unsigned_dividend),
++    .s_axis_dividend_tready(unsigned_dividend_tready),
++    .s_axis_dividend_tvalid(unsigned_dividend_tvalid),
++    .m_axis_dout_tdata(unsigned_result),
++    .m_axis_dout_tvalid(unsigned_out_tvalid)
++);
++
++reg signed_dividend_tvalid_reg, unsigned_dividend_tvalid_reg;
++reg signed_divisor_tvalid_reg, unsigned_divisor_tvalid_reg;
++
++//div_signed dividend shake hand
++assign signed_dividend_tvalid = init ? (es_need_wait_div && ~es_div_op[0]) : signed_dividend_tvalid_reg;
++always@(posedge clk)
++    begin
++        if(reset)
++            signed_dividend_tvalid_reg <= 0;
++        else if(signed_dividend_tready)               //shake hand
++            signed_dividend_tvalid_reg <= 0;
++        else if(es_need_wait_div && ~es_div_op[0] && init)    //div_w or mod_w
++            signed_dividend_tvalid_reg <= 1;
++    end
++
++//div_signed divisor shake hand
++assign signed_divisor_tvalid = init ? (es_need_wait_div && ~es_div_op[0]) : signed_divisor_tvalid_reg;
++always@(posedge clk)
++    begin
++        if(reset)
++            signed_divisor_tvalid_reg <= 0;
++        else if(signed_divisor_tready)                //shake hand
++            signed_divisor_tvalid_reg <= 0;
++        else if(es_need_wait_div && ~es_div_op[0] && init)    //div_w or mod_w
++            signed_divisor_tvalid_reg <= 1;
++    end
++
++//div_unsigned dividend shake hand
++assign unsigned_dividend_tvalid = init ? (es_need_wait_div && es_div_op[0]) : unsigned_dividend_tvalid_reg;
++always@(posedge clk)
++    begin
++        if(reset)
++            unsigned_dividend_tvalid_reg <= 0;
++        else if(unsigned_dividend_tready)               //shake hand
++            unsigned_dividend_tvalid_reg <= 0;
++        else if(es_need_wait_div && es_div_op[0] && init)    //div_wu or mod_ww
++            unsigned_dividend_tvalid_reg <= 1;
++    end
++
++//div_unsigned divisor shake hand
++assign unsigned_divisor_tvalid = init ? (es_need_wait_div && es_div_op[0]) : unsigned_divisor_tvalid_reg;
++always@(posedge clk)
++    begin
++        if(reset)
++            unsigned_divisor_tvalid_reg <= 0;
++        else if(unsigned_divisor_tready)                //shake hand
++            unsigned_divisor_tvalid_reg <= 0;
++        else if(es_need_wait_div && es_div_op[0] && init)    //div_wu or mod_wu
++            unsigned_divisor_tvalid_reg <= 1;
++    end
++
++/*-------------------------------------------------------*/
++
++/*-------------------------valid-------------------------*/
++reg es_valid;   
++
++wire es_ready_go;
++assign es_ready_go = es_need_wait_div ? (signed_out_tvalid || unsigned_out_tvalid) : 1'b1;
++assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
++assign es_to_ms_valid = es_valid && es_ready_go;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            es_valid <= 1'b0;
++        else if(es_allow_in)
++            es_valid <= ds_to_es_valid;
++    end
++
++/*-------------------------------------------------------*/
++
++/*----------------------link data_sram------------------*/
++//task 11 add Unaligned memory access, so addr[1:0] should be 2'b00
++wire [3:0] w_strb;  //depend on st_op
++/* st_op = (one hot)
++* 3'b001 st_w
++* 3'b010 st_b
++* 3'b100 st_h
++*/
++assign w_strb =  es_st_op[0] ? 4'b1111 :
++                 es_st_op[1] ? (es_unaligned_addr==2'b00 ? 4'b0001 : es_unaligned_addr==2'b01 ? 4'b0010 : 
++                                es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
++                 es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
++
++//consider st_b, st_h
++wire [31:0] real_wdata;
++assign real_wdata = es_st_op[0] ? es_rkd_value :
++                    es_st_op[1] ? {4{es_rkd_value[7:0]}} :
++                    es_st_op[2] ? {2{es_rkd_value[15:0]}} : 32'b0;
++
++assign data_sram_en    = 1'b1;   //allowing reading data_sram
++//assign data_sram_wen   = (es_mem_we && es_valid) ? w_strb : 4'b0000;
++//task12 add 
++assign data_sram_wen = (es_mem_we && es_valid && !has_int && !if_ms_has_int) ? w_strb : 4'b0000;
++
++assign data_sram_addr  = {es_alu_result[31:2],2'b00};
++assign data_sram_wdata = real_wdata;        
++/*--------------------------------------------------------*/
++
++/*-----------------------deliver es_to_ds_bus----------------*/
++wire IF_LOAD;   //if inst is load --> which means forward needs block for one clk
++assign IF_LOAD = es_res_from_mem;
++//task12 add es_csr_write, es_csr_num
++assign es_to_ds_bus = {es_gr_we,es_dest,IF_LOAD,es_calcu_result,
++                       es_csr_write, es_csr_num, es_csr};
++
++/*-------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/ID.v b/cyt_code/ex12/ID.v
+new file mode 100644
+index 0000000..5b00049
+--- /dev/null
++++ b/cyt_code/ex12/ID.v
+@@ -0,0 +1,781 @@
++`include "width.vh"
++
++module stage2_ID(
++    input clk,
++    input reset,
++    input ertn_flush,
++    input has_int,
++    input wb_ex,
++
++    input es_allow_in,
++    output ds_allow_in,
++
++    input fs_to_ds_valid,
++    output ds_to_es_valid, 
++
++    input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
++    output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
++
++    //ws_to_ds_bus  for write reg_file
++    input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
++    //br_bus including br_taken and br_target
++    //deliver back to FETCH module
++    output [`WIDTH_BR_BUS-1:0] br_bus,
++
++    input [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
++    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
++);
++
++/*-------------------------for decode--------------------------*/
++wire [31:0] inst;
++
++wire        br_taken;
++wire [31:0] br_target;
++
++wire [14:0] alu_op;
++wire        load_op;
++wire        src1_is_pc;
++wire        src2_is_imm;
++wire        res_from_mem;
++wire        dst_is_r1;
++wire        gr_we;
++wire        mem_we;
++wire        src_reg_is_rd;
++wire [4: 0] dest;
++wire [31:0] rj_value;
++wire [31:0] rkd_value;
++wire [31:0] imm;
++wire [31:0] br_offs;
++wire [31:0] jirl_offs;
++
++wire [ 5:0] op_31_26;
++wire [ 3:0] op_25_22;
++wire [ 1:0] op_21_20;
++wire [ 4:0] op_19_15;
++wire [ 4:0] rd;
++wire [ 4:0] rj;
++wire [ 4:0] rk;
++wire [11:0] i12;
++wire [19:0] i20;
++wire [15:0] i16;
++wire [25:0] i26;
++
++wire [63:0] op_31_26_d;
++wire [15:0] op_25_22_d;
++wire [ 3:0] op_21_20_d;
++wire [31:0] op_19_15_d;
++
++wire        inst_add_w;
++wire        inst_sub_w;
++wire        inst_slt;
++wire        inst_sltu;
++wire        inst_nor;
++wire        inst_and;
++wire        inst_or;
++wire        inst_xor;
++wire        inst_slli_w;
++wire        inst_srli_w;
++wire        inst_srai_w;
++wire        inst_addi_w;
++wire        inst_ld_w;
++wire        inst_st_w;
++wire        inst_jirl;
++wire        inst_b;
++wire        inst_bl;
++wire        inst_beq;
++wire        inst_bne;
++wire        inst_lu12i_w;
++
++//task10 add inst
++wire        inst_slti;
++wire        inst_sltui;
++wire        inst_andi;
++wire        inst_ori;
++wire        inst_xori;
++wire        inst_sll_w;
++wire        inst_srl_w;
++wire        inst_sra_w;
++wire        inst_pcaddu12i;
++wire        inst_mul_w;
++wire        inst_mulh_w;
++wire        inst_mulh_wu;
++wire        inst_div_w;
++wire        inst_div_wu;
++wire        inst_mod_w;
++wire        inst_mod_wu;
++
++//task11 add inst
++wire        inst_ld_b;
++wire        inst_ld_h;
++wire        inst_ld_bu;
++wire        inst_ld_hu;
++wire        inst_st_b;
++wire        inst_st_h;
++wire        inst_blt;
++wire        inst_bge;
++wire        inst_bltu;
++wire        inst_bgeu;
++
++//task12 add inst
++wire        inst_csrrd;
++wire        inst_csrwr;
++wire        inst_csrxchg;
++wire        inst_ertn;
++wire        inst_syscall;
++
++wire        need_ui5;
++wire        need_SignExtend_si12;
++wire        need_ZeroExtend_si12;
++wire        need_si16;
++wire        need_si20;
++wire        need_si26;
++wire        src2_is_4;
++
++wire [ 4:0] rf_raddr1;
++wire [31:0] rf_rdata1;
++wire [ 4:0] rf_raddr2;
++wire [31:0] rf_rdata2;
++
++assign op_31_26  = inst[31:26];     //checked
++assign op_25_22  = inst[25:22];     //checked
++assign op_21_20  = inst[21:20];     //checked
++assign op_19_15  = inst[19:15];     //checked
++
++assign rd   = inst[ 4: 0];  //checked
++assign rj   = inst[ 9: 5];  //checked
++assign rk   = inst[14:10];  //checked
++
++assign i12  = inst[21:10];  //checked
++assign i20  = inst[24: 5];  //checked
++assign i16  = inst[25:10];  //checked
++assign i26  = {inst[ 9: 0], inst[25:10]};   //checked 
++
++decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
++decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
++decoder_2_4  u_dec2(.in(op_21_20 ), .out(op_21_20_d ));
++decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
++
++//add_w: rd = rj + rk   asm: add.w rd, rj, rk
++assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
++//sun_w: rd = rj - rk   asm: sub.w rd, rj, rk
++assign inst_sub_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
++//slt: rd = (signed(rj) < signed(rk)) ? 1 : 0  
++//asm: slt rd, rj, rk
++assign inst_slt    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h04];
++//sltu: rd = (unsigned(rj) < unsigned(rk)) ? 1 : 0  
++//asm: sltu rd, rj, rk
++assign inst_sltu   = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h05];
++//nor: rd = ~(rj | rk)   asm: nor rd, rj, rk
++assign inst_nor    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h08];
++//and: rd = rj & rk  asm: and rd, rj, rk
++assign inst_and    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h09];
++//or: rd = rj | rk  asm: or rd, rj, rk
++assign inst_or     = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0a];
++//xor: rd = rj ^ rk  asm: xor rd, rj, rk
++assign inst_xor    = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0b];
++//slli.w: rd = SLL(rj, ui5)  asm: slli.w rd, rj, ui5
++assign inst_slli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h01];
++//srli.w: rd = SRL(rj, ui5)  asm: srli.w rd, rj, ui5
++assign inst_srli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h09];
++//srai.w: rd = SRA(rj, ui5)  asm: srai.w rd, rj, ui5
++assign inst_srai_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h11];
++//addi.w: rd = rj + SignExtend(si12, 32)  asm: addi.w rd, rj, si12
++assign inst_addi_w = op_31_26_d[6'h00] & op_25_22_d[4'ha];
++//ld_w: ld.w rd, rj, si12
++//vaddr = rj + SignExtend(si12, GRLEN)
++//paddr = AddressTranslation(vaddr)
++//word = MemoryLoad(paddr, WORD)
++//rd = word
++assign inst_ld_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h2];
++//st_w: st.w rd, rj, si12
++//vaddr = rj + SignExtend(si12, GRLEN)
++//paddr = AddressTranlation(vaddr)
++//rd --> Mem(paddr)(len:WORD)
++assign inst_st_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h6];
++//jirl: rd, rj, offs16
++//rd = pc + 4
++//pc = rj + SignExtend({offs16, 2'b0}, GRLEN)
++assign inst_jirl   = op_31_26_d[6'h13];
++//b: b offs26
++//pc = pc + SignExtend({offs26, 2'b0}, GRLEN)
++assign inst_b      = op_31_26_d[6'h14];
++//bl: bl offs26
++//GR[1] = pc + 4
++//pc = pc + SignExtend({offs26, 2'b0}, GRLEN)
++assign inst_bl     = op_31_26_d[6'h15];
++//beq: rj, rd, offs16
++//if (rj==rd)
++//  pc = pc + SignExtend({offs16, 2'b0}, GRLEN)
++assign inst_beq    = op_31_26_d[6'h16];
++//bne: rj, rd, offs16
++//if (rj!=rd)
++//  pc = pc + SignExtend({offs16, 2'b0}, GRLEN)
++assign inst_bne    = op_31_26_d[6'h17];
++//lui2i_w: rd, si20
++//rd = {si20, 12'b0}
++assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
++
++//task10 add inst
++
++/*slti: rd, rj, si12
++* tmp = SignExtend(si12, GRLEN)
++* rd = (signed(rj) < signed(tmp)) ? 1 : 0  
++*/
++assign inst_slti = op_31_26_d[6'h0] & op_25_22_d[4'h8];
++
++/*sltui: rd, rj, si12
++* tmp = SignExtend(si12, GRLEN)
++* rd = (unsigned(rj) < unsigned(tmp)) ? 1 : 0  
++*/
++assign inst_sltui = op_31_26_d[6'h0] & op_25_22_d[4'h9];
++
++/*andi: andi rd, rj, ui12
++* rd = rj & ZeroExtend(ui12)
++*/
++assign inst_andi = op_31_26_d[6'h0] & op_25_22_d[4'hd];
++
++/*ori: ori rd, rj, ui12
++* rd = rj | ZeroExtend(ui12)
++*/
++assign inst_ori = op_31_26_d[6'h0] & op_25_22_d[4'he];
++
++/*xori: xori rd, rj, ui12
++* rd = rj ^ ZeroExtend(ui12)
++*/
++assign inst_xori = op_31_26_d[6'h0] & op_25_22_d[4'hf];
++
++/*sll.w: sll.w rd, rj, rk
++* tmp = SLL(rj, rk[4:0])
++* rd = tmp
++*/
++assign inst_sll_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0e];
++
++/*srl.w: srl.w rd, rj, rk
++* tmp = SRL(rj, rk[4:0])
++* rd = tmp
++*/
++assign inst_srl_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0f];
++
++/*sra.w: sra.w rd, rj, rk
++* tmp = SRA(rj, rk[4:0])
++* rd = tmp
++*/
++assign inst_sra_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h10];
++
++/*pcaddu12i rd, si20
++* rd = pc + SignExtend({si20, 12'b0})
++*/
++assign inst_pcaddu12i = op_31_26_d[6'h7] & ~inst[25];
++
++/*mul.w mul.w rd, rj, rk
++* product = signed(rj) * signed(rk)
++* rd = product[31:0]
++*/
++assign inst_mul_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h18];
++
++/*mulh.w mulh.w rd, rj, rk
++* product = signed(rj) * signed(rk)
++* rd = product[63:32]
++*/
++assign inst_mulh_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h19];
++
++/*mulh.wu mulh.wu rd, rj, rk
++* product = unsigned(rj) * unsigned(rk)
++* rd = product[63:32]
++*/
++assign inst_mulh_wu = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h1a];
++
++/*div.w div.w: rd, rj, rk
++* quotient = signed(rj) / signed(rk)
++* rd = quotient[31:0]
++*/
++assign inst_div_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h0];
++
++/*mod.w mod.w: rd, rj, rk
++* remainder = signed(rj) / signed(rk)
++* rd = remainder[31:0]
++*/
++assign inst_mod_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h1];
++
++/*div.wu div.wu: rd, rj, rk
++* quotient = unsigned(rj) / unsigned(rk)
++* rd = quotient[31:0]
++*/
++assign inst_div_wu = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h2];
++
++/*mod.wu mod.wu: rd, rj, rk
++* remainder = unsigned(rj) / unsigned(rk)
++* rd = remainder[31:0]
++*/
++assign inst_mod_wu = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h3];
++
++//task11 add inst
++
++/*ld_b ld_b: rd, rj, si12
++* paddr = vaddr = rj + SignExtend(si12)
++* byte = MemoryLoad(paddr, BYTE)
++* rd = SignExtend(byte)
++*/
++assign inst_ld_b = op_31_26_d[6'h0a] & op_25_22_d[4'h0];
++
++/*ld_h ld_h: rd, rj, si12
++* paddr = vaddr = rj + SignExtend(si12)
++* haldword = MemoryLoad(paddr, halfword)
++* rd = SignExtend(halfword)
++*/
++assign inst_ld_h = op_31_26_d[6'h0a] & op_25_22_d[4'h1];
++
++/*ld_bu ld_bu: rd, rj, si12
++* paddr = vaddr = rj + SignExtend(si12)
++* byte = MemoryLoad(paddr, byte)
++* rd = ZeroExtend(halfword)
++*/
++assign inst_ld_bu = op_31_26_d[6'h0a] & op_25_22_d[4'h8];
++
++/*ld_hu ld_hu: rd, rj, si12
++* paddr = vaddr = rj + SignExtend(si12)
++* haldword = MemoryLoad(paddr, halfword)
++* rd = ZeroExtend(halfword)
++*/
++assign inst_ld_hu = op_31_26_d[6'h0a] & op_25_22_d[4'h9];
++
++/*st_b st_b: rd, rj, si12
++* paddr = vaddr = rj + SignExtend(si12)
++* MemoryStore(rd[7:0], paddr, byte)
++*/
++assign inst_st_b = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
++
++/*st_h st_h: rd, rj, si12
++* paddr = vaddr = rj + SignExtend(si12)
++* MemoryStore(rd[15:0], paddr, halfword)
++*/
++assign inst_st_h = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
++
++/*blt blt: rj, rd, offs16
++* if(signed(rj) < signed(rd))
++*       pc = pc + SignExtend(offs16,2'b0)
++*/
++assign inst_blt = op_31_26_d[6'h18];
++
++/*bge bge: rj, rd, offs16
++* if(signed(rj) >= signed(rd))
++*       pc = pc + SignExtend(offs16,2'b0)
++*/
++assign inst_bge = op_31_26_d[6'h19];
++
++/*bltu bltu: rj, rd, offs16
++* if(unsigned(rj) < unsigned(rd))
++*       pc = pc + SignExtend(offs16,2'b0)
++*/
++assign inst_bltu = op_31_26_d[6'h1a];
++
++/*bgeu bgeu: rj, rd, offs16
++* if(unsigned(rj) < unsigned(rd))
++*       pc = pc + SignExtend(offs16,2'b0)
++*/
++assign inst_bgeu = op_31_26_d[6'h1b];
++
++//task12 add
++
++/*csrrd csrrd: rd, csr_num
++* rd <-- CSR[csr_num]
++*/
++assign inst_csrrd = op_31_26_d[6'h1] & ~inst[25] & ~inst[24] & (rj==0);
++
++/*csrwr csrwr: rd, csr_num
++* rd(old) --> CSR[csr_num]
++* rd(new) <-- CSR[csr_num](old)
++*/
++assign inst_csrwr = op_31_26_d[6'h1] & ~inst[25] & ~inst[24] & (rj==1);
++
++/*csrxchg csrxchg: rd, rj, csr_num
++* rd(old) --> CSR[csr_num] according to wmask in rj
++* rd(new) <-- CSR[csr_num](old)
++*/
++assign inst_csrxchg = op_31_26_d[6'h1] & ~inst[25] & ~inst[24] & (rj!=0 & rj!=1);
++
++/*ertn ertn: 
++* CSR_PRMD[PPLV,PIE] --> CSR_CRMD[PLV,IE]
++* pc <-- CSR_ERA
++*/
++assign inst_ertn = op_31_26_d[6'h1] & op_25_22_d[4'h9] 
++                 & op_21_20_d[2'h0] & op_19_15_d[5'h10] & (rk==5'b01110);
++
++/*syscall syscall: code
++* run syscall immediately according to code
++*/
++assign inst_syscall = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
++
++assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;  
++assign need_SignExtend_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui
++                                            | inst_ld_b | inst_ld_bu | inst_ld_h | inst_ld_hu | inst_st_b | inst_st_h;
++assign need_ZeroExtend_si12  =  inst_andi | inst_ori | inst_xori;
++assign need_si16  =  inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;  
++assign need_si20  =  inst_lu12i_w | inst_pcaddu12i;          
++assign need_si26  =  inst_b | inst_bl;      
++
++assign src2_is_4  =  inst_jirl | inst_bl;   
++
++assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :   
++                             {{14{i16[15]}}, i16[15:0], 2'b0} ;   
++
++assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};   
++
++assign src_reg_is_rd = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_w | inst_st_b | inst_st_h
++                                | inst_csrrd | inst_csrwr | inst_csrxchg;
++
++//used for judging br_taken
++assign rj_eq_rd = (rj_value == rkd_value);
++
++//imitation calcu slt and sltu in alu
++wire signed_rj_less_rkd;
++wire unsigned_rj_less_rkd;
++
++wire cin;
++assign cin = 1'b1;
++wire [31:0] adver_rkd_value;
++assign adver_rkd_value = ~rkd_value;
++wire [31:0] rj_rkd_adder_result;
++wire cout;
++assign {cout, rj_rkd_adder_result} = rj_value + adver_rkd_value + cin;
++
++assign signed_rj_less_rkd = (rj_value[31] & ~rkd_value[31])
++                               | ((rj_value[31] ~^ rkd_value[31]) & rj_rkd_adder_result[31]);
++assign unsigned_rj_less_rkd = ~cout;                      
++
++
++/*----------------------------------------------------------------*/
++
++/*-----------------------receive fs_to_ds_bus----------------*/
++wire [31:0] ds_pc;
++
++reg [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus_reg;
++always @(posedge clk)
++    begin
++        if(reset)
++            fs_to_ds_bus_reg <= 0;
++        else if(ertn_flush || has_int || wb_ex)
++            fs_to_ds_bus_reg <= 0;
++        else if(fs_to_ds_valid && ds_allow_in)         
++            fs_to_ds_bus_reg <= fs_to_ds_bus;
++    end
++assign {inst,ds_pc} = fs_to_ds_bus_reg;         //_reg;
++/*-------------------------------------------------------*/
++
++/*-----------------------receive es,ms,ws_to_ds_bus----------------*/
++/*
++assign ws_to_ds_bus[31:0] = ws_wdata;
++assign ws_to_ds_bus[36:32] = ws_waddr;
++assign ws_to_ds_bus[37:37] = ws_we;
++assign ws_to_ds_bus[38:38] = ws_csr_write;
++assign ws_to_ds_bus[39:39] = ws_ertn_flush;
++assign ws_to_ds_bus[53:40] = ws_csr_num;
++*/
++
++wire rf_we;
++wire [4:0] rf_waddr;
++wire [31:0] rf_wdata;
++
++//task12 add
++wire ws_csr_write;
++wire ws_ertn_flush;
++wire [13:0] ws_csr_num;
++wire ws_csr;
++assign {ws_csr, ws_csr_num, ws_ertn_flush, ws_csr_write, rf_we, rf_waddr,rf_wdata} = ws_to_ds_bus;
++
++wire es_we;
++wire [4:0] es_dest;
++wire IF_LOAD;
++wire [31:0] es_wdata;
++wire es_csr_write;
++wire [13:0] es_csr_num;
++wire es_csr;
++
++wire ms_we;
++wire [4:0] ms_dest;
++wire [31:0] ms_wdata;
++wire ms_csr_write;
++wire [13:0] ms_csr_num;
++wire ms_csr;
++
++assign {es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
++assign {ms_we, ms_dest, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
++/*-------------------------------------------------------*/
++
++/*-----------------------deliver br_bus----------------------*/
++assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd) 
++                   || (inst_blt && signed_rj_less_rkd) || (inst_bltu && unsigned_rj_less_rkd)
++                   || (inst_bge && ~signed_rj_less_rkd) || (inst_bgeu && ~unsigned_rj_less_rkd)
++                   || inst_jirl || inst_bl || inst_b) && ds_valid;
++
++wire br_taken_cancel;
++
++assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt 
++                             || inst_bge || inst_bltu || inst_bgeu) ? (ds_pc + br_offs) :   
++                                                   /*inst_jirl*/ (rj_value + jirl_offs); 
++assign br_bus = {br_taken_cancel,br_taken,br_target};           
++/*-------------------------------------------------------*/
++
++/*-----------------------deliver ds_to_es_bus----------------*/
++assign rj_value  = forward_rdata1;   
++assign rkd_value = forward_rdata2;
++
++wire [31:0] SignExtend_imm12;
++assign SignExtend_imm12 = {{20{i12[11]}}, i12[11:0]};
++wire [31:0] ZeroExtend_imm12;
++assign ZeroExtend_imm12 = {20'b0, i12[11:0]};
++
++assign imm = src2_is_4 ? 32'h4                       :   
++             need_si20 ? {i20[19:0], 12'b0}          :   
++             need_ui5  ? {27'b0,rk[4:0]}             :   
++             need_SignExtend_si12 ? SignExtend_imm12 :
++             need_ZeroExtend_si12 ? ZeroExtend_imm12 :   
++             32'b0 ;
++assign dst_is_r1     = inst_bl;     
++assign dest = dst_is_r1 ? 5'd1 : rd;
++assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
++                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn;    //task12 add csr will write reg_file  
++
++assign mem_we        = inst_st_w | inst_st_b | inst_st_h;
++
++assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
++                    | inst_jirl | inst_bl | inst_pcaddu12i 
++                    | inst_ld_b | inst_ld_bu | inst_ld_h | inst_ld_hu
++                    | inst_st_b | inst_st_h;
++assign alu_op[ 1] = inst_sub_w;
++assign alu_op[ 2] = inst_slt | inst_slti;
++assign alu_op[ 3] = inst_sltu | inst_sltui;
++assign alu_op[ 4] = inst_and | inst_andi;
++assign alu_op[ 5] = inst_nor;
++assign alu_op[ 6] = inst_or | inst_ori;
++assign alu_op[ 7] = inst_xor | inst_xori;
++assign alu_op[ 8] = inst_slli_w | inst_sll_w;
++assign alu_op[ 9] = inst_srli_w | inst_srl_w;
++assign alu_op[10] = inst_srai_w | inst_sra_w;
++assign alu_op[11] = inst_lu12i_w;
++assign alu_op[12] = inst_mul_w;
++assign alu_op[13] = inst_mulh_w;
++assign alu_op[14] = inst_mulh_wu;
++
++assign src1_is_pc    = inst_jirl | inst_bl | inst_pcaddu12i;
++
++assign src2_is_imm   = inst_slli_w |    //checked
++                       inst_srli_w |
++                       inst_srai_w |
++                       inst_addi_w |
++                       inst_ld_w   |
++                       inst_st_w   |
++                       inst_lu12i_w|
++                       inst_jirl   |
++                       inst_bl     |
++                       inst_slti   |
++                       inst_sltui  |
++                       inst_andi   |
++                       inst_ori    |
++                       inst_xori   |
++                       inst_pcaddu12i |
++                       inst_ld_b   |
++                       inst_ld_bu  |
++                       inst_ld_h   |
++                       inst_ld_hu  |
++                       inst_st_b   |
++                       inst_st_h   ;
++
++assign res_from_mem  = inst_ld_w || inst_ld_b || inst_ld_bu || inst_ld_h || inst_ld_hu;
++
++wire need_wait_div;        //if ex need waiting result of div
++assign need_wait_div = inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu;
++wire [1:0] div_op;
++/* div_op = 
++* 2'b00: div_w
++* 2'b01: div_wu
++* 2'b10: mod_w
++* 2'b11: mod_wu
++*/ 
++assign div_op = inst_div_w ? 2'b00 : inst_div_wu ? 2'b01 : inst_mod_w ? 2'b10 : 2'b11; 
++
++wire [4:0] ld_op;
++/* ld_op = (one hot)
++* 5'b00001 ld_w
++* 5'b00010 ld_b
++* 5'b00100 ld_bu
++* 5'b01000 ld_h
++* 5'b10000 ld_hu
++*/
++assign ld_op[0] = inst_ld_w;
++assign ld_op[1] = inst_ld_b;
++assign ld_op[2] = inst_ld_bu;
++assign ld_op[3] = inst_ld_h;
++assign ld_op[4] = inst_ld_hu;
++
++wire [2:0] st_op;
++/* st_op = (one hot)
++* 3'b001 st_w
++* 3'b010 st_b
++* 5'b100 st_h
++*/
++assign st_op[0] = inst_st_w;
++assign st_op[1] = inst_st_b;
++assign st_op[2] = inst_st_h;
++
++assign ds_to_es_bus[31:   0] = ds_pc;        
++assign ds_to_es_bus[63:  32] = rj_value;  
++assign ds_to_es_bus[95:  64] = rkd_value; 
++assign ds_to_es_bus[127: 96] = imm;       
++assign ds_to_es_bus[132:128] = dest;      
++assign ds_to_es_bus[133:133] = gr_we;     
++assign ds_to_es_bus[134:134] = mem_we;    
++assign ds_to_es_bus[149:135] = alu_op;    
++assign ds_to_es_bus[150:150] = src1_is_pc;   
++assign ds_to_es_bus[151:151] = src2_is_imm;  
++assign ds_to_es_bus[152:152] = res_from_mem; 
++assign ds_to_es_bus[153:153] = need_wait_div;
++assign ds_to_es_bus[155:154] = div_op;
++assign ds_to_es_bus[160:156] = ld_op;
++assign ds_to_es_bus[163:161] = st_op;
++
++//task12
++assign ds_to_es_bus[177:164] = ds_csr_num;
++assign ds_to_es_bus[209:178] = ds_csr_wmask;
++assign ds_to_es_bus[210:210] = ds_csr_write;
++assign ds_to_es_bus[211:211] = ds_ertn_flush;
++assign ds_to_es_bus[212:212] = ds_csr;
++assign ds_to_es_bus[213:213] = ds_ex_syscall;
++assign ds_to_es_bus[228:214] = ds_code;
++/*-------------------------------------------------------*/
++
++/*--------------------------------valid---------------------------*/
++reg ds_valid;    
++wire if_read_addr1;   
++wire if_read_addr2;   
++
++assign if_read_addr1 = ~inst_b && ~inst_bl;
++assign if_read_addr2 = inst_beq || inst_bne || inst_blt || inst_bge || inst_bltu || inst_bgeu || 
++                       inst_xor || inst_or || inst_and || inst_nor ||
++                       inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w || inst_st_b || inst_st_h ||
++                       inst_sll_w || inst_srl_w || inst_sra_w || inst_mul_w || inst_mulh_w || inst_mulh_wu ||
++                       inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu ||
++                       inst_csrrd || inst_csrwr || inst_csrxchg;     //task12 add 
++
++wire Need_Block;    //(ex_crush & IF_LOAD) or csr_crush
++
++//when ertn_flush or wb_ex or has_int , we can't block ,becaue it will make ds_allow_in down, so that fs_allow_in down, finally fetch error
++/*
++condition && ~ertn_flush && ~wb_ex && ~has_int in this place is to solve a very rare and coincide situation:
++when an ertn_flush or wb_ex and has_int happens (signal raised)
++and at the same time, inst in decode_stage trigger a read_write conflict in csr_inst and neel_block
++actually this decode_stage inst and csr_inst should not be executed (we will solve this by clearing the cache in line)
++but if we allow this decode_stage inst to trigger a block, ds_ready_go will be down because of it
++as a result, ds_allow_in will be down therefore, and this will cause fs_allow_in also be down which is dangerous
++when fs_allow_in down, we block (fetch_pc <= next_pc), and this next_pc is essential to getting into exception
++or return from exception, this out_of_exception block will make next_pc (key) lost
++so we must avoid this situation happen!
++*/
++assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
++
++wire ex_crush1;
++wire ex_crush2;
++assign ex_crush1 = (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
++assign ex_crush2 = (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
++
++wire mem_crush1;
++wire mem_crush2;
++assign mem_crush1 = (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
++assign mem_crush2 = (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
++
++wire wb_crush1;
++wire wb_crush2;
++assign wb_crush1 = (rf_we && rf_waddr!=0) && (if_read_addr1 && rf_raddr1==rf_waddr);
++assign wb_crush2 = (rf_we && rf_waddr!=0) && (if_read_addr2 && rf_raddr2==rf_waddr);
++
++//task12 add csr_crush
++/*
++csr_crush happen when an instruction read reg
++which csr_inst will write in next clks
++this condition is specail because csr_int read csr_reg and 
++write into reg_file in wb_stage, so if we want to use forward deliver
++to solve read_write inflict, we must use more resources,
++but csr_inst is rare which means read_write conflict in csr_inst is rarer
++so forward deliver is a waste (not worthy)
++so in this place , we just block when read_write_conflict in csr_inst happen
++*/
++
++/*
++if ws_csr && (wb_crush1 || wb_crush2), we needn't block
++because we can use existed data_path used for solving past read_write conflict directly
++to achieve forward deliver
++*/
++
++wire csr_crush;
++
++assign csr_crush = (es_csr && (ex_crush1 || ex_crush2)) || (ms_csr && (mem_crush1 || mem_crush2));  //|| (ws_csr && (wb_crush1 || wb_crush2));
++
++//forward deliver
++wire [31:0] forward_rdata1;
++wire [31:0] forward_rdata2;
++assign forward_rdata1 = ex_crush1? es_wdata : mem_crush1? ms_wdata : wb_crush1? rf_wdata : rf_rdata1;
++assign forward_rdata2 = ex_crush2? es_wdata : mem_crush2? ms_wdata : wb_crush2? rf_wdata : rf_rdata2;
++
++wire ds_ready_go;
++assign ds_ready_go = ~Need_Block;         
++assign ds_allow_in = !ds_valid || ds_ready_go && es_allow_in;
++assign ds_to_es_valid = ds_valid && ds_ready_go;
++
++
++assign br_taken_cancel =  Need_Block ? 1'b0 : br_taken;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            ds_valid <= 1'b0;
++        else if(br_taken_cancel)
++            ds_valid <= 1'b0;
++        else if(ds_allow_in)
++            ds_valid <= fs_to_ds_valid;
++    end
++/*----------------------------------------------------------------*/
++
++/*------------------------------CSR inst--------------------------*/
++
++//inst[23:10] -- csr_num
++wire [13:0] ds_csr_num;
++assign ds_csr_num = inst[23:10];
++
++wire ds_ex_syscall;
++assign ds_ex_syscall = inst_syscall;
++
++wire [14:0] ds_code;
++assign ds_code = inst[14:0];
++
++wire ds_csr;
++assign ds_csr = inst_csrrd | inst_csrwr | inst_csrxchg;
++
++wire ds_csr_write;
++assign ds_csr_write = inst_csrwr || inst_csrxchg;
++
++wire [31:0] ds_csr_wmask;
++assign ds_csr_wmask = inst_csrxchg ? rj_value : 32'hffffffff;       //mask <-- rj
++
++wire ds_ertn_flush;
++assign ds_ertn_flush = inst_ertn;
++
++
++/*----------------------------------------------------------------*/
++
++
++/*-------------------------link reg_file---------------------------*/
++assign rf_raddr1 = rj;  
++assign rf_raddr2 = src_reg_is_rd ? rd : rk; 
++regfile u_regfile(
++    .clk    (clk      ),   
++    .raddr1 (rf_raddr1),    
++    .rdata1 (rf_rdata1),    
++    .raddr2 (rf_raddr2),    
++    .rdata2 (rf_rdata2),    
++    .we     (rf_we    ),    
++    .waddr  (rf_waddr ),    
++    .wdata  (rf_wdata )     
++    );
++/*----------------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/IF.v b/cyt_code/ex12/IF.v
+new file mode 100644
+index 0000000..dfdee4d
+--- /dev/null
++++ b/cyt_code/ex12/IF.v
+@@ -0,0 +1,105 @@
++`include "width.vh"
++
++module stage1_IF(
++    input clk,
++    input reset,
++    input ertn_flush,
++    input has_int,
++    input wb_ex,
++    input [31:0] ertn_pc,
++    input [31:0] ex_entry,
++
++    input ds_allow_in,
++    input [`WIDTH_BR_BUS-1:0] br_bus,
++    output fs_to_ds_valid,
++    output [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
++
++    output inst_sram_en,
++    output [3:0] inst_sram_wen,
++    output [31:0] inst_sram_addr,
++    output [31:0] inst_sram_wdata,
++
++    input [31:0] inst_sram_rdata
++);
++
++/*--------------------------------valid-----------------------------*/
++
++reg fs_valid;    
++
++//瀵筬s_valid鏉ヨ锛屽彧瑕佸彇娑坮eset锛岀浉褰撳幓鍓嶄竴闃舵瀵瑰畠鍙戞潵鐨剉alid淇″彿
++wire pre_if_to_fs_valid;
++assign pre_if_to_fs_valid = !reset;
++
++wire fs_ready_go;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            fs_valid <= 1'b0;
++        else if(fs_allow_in)
++            fs_valid <= pre_if_to_fs_valid;
++        /*
++        else if(br_taken_cancel)
++            fs_valid <= 1'b0;
++        */
++    end
++
++//灏唎utput-fs_to_ds_valid涓巖eg fs_valid杩炴帴
++//鑰冭檻鍒板悗搴忓彲鑳戒竴涓猚lk瀹屾垚涓嶄簡FETCH锛宺aise fs_ready_go
++assign fs_ready_go = 1'b1;
++wire fs_allow_in;
++assign fs_allow_in = !fs_valid || fs_ready_go && ds_allow_in;
++assign fs_to_ds_valid = fs_valid && fs_ready_go;
++
++/*----------------------------------------------------------------*/
++
++/*--------------------------------pc------------------------------*/
++
++wire [31:0] br_target;  //璺宠浆鍦板潃
++wire br_taken;          //鏄惁璺宠浆
++wire br_taken_cancel;
++//br_taken鍜宐r_target鏉ヨ嚜br_bus
++assign {br_taken_cancel,br_taken,br_target} = br_bus;
++
++reg [31:0] fetch_pc; 
++
++wire [31:0] seq_pc;     //椤哄簭鍙栧潃
++assign seq_pc = fetch_pc + 4;
++wire [31:0] next_pc;    //nextpc鏉ヨ嚜seq鎴朾r
++assign next_pc = (has_int || wb_ex)? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
++   
++always @(posedge clk)
++    begin
++        if(reset)
++            fetch_pc <= 32'h1BFFFFFC;
++        else if(pre_if_to_fs_valid && fs_allow_in)
++            fetch_pc <= next_pc;
++    end
++
++/*----------------------------------------------------------------*/
++
++/*----------------------------Link to inst_ram---------------------*/
++
++/*
++    output inst_sram_en,                
++    output [3:0] inst_sram_wen,         
++    output [31:0] inst_sram_addr,       
++    output [31:0] inst_sram_wdata,      
++    input [31:0] inst_sram_rdata       
++*/
++
++assign inst_sram_en = pre_if_to_fs_valid && ds_allow_in;
++assign inst_sram_wen = 4'b0;    //fetch闃舵涓嶅啓
++assign inst_sram_addr = next_pc;
++assign inst_sram_wdata = 32'b0;
++
++/*----------------------------------------------------------------*/
++
++/*----------------------------deliver fs_to_ds_bus------------------------*/
++wire [31:0] fetch_inst;
++assign fetch_inst = inst_sram_rdata;
++assign fs_to_ds_bus = {fetch_inst,fetch_pc};
++
++/*----------------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/MEM.v b/cyt_code/ex12/MEM.v
+new file mode 100644
+index 0000000..5842016
+--- /dev/null
++++ b/cyt_code/ex12/MEM.v
+@@ -0,0 +1,169 @@
++`include "width.vh"
++
++module stage4_MEM(
++    input clk,
++    input reset,
++    input ertn_flush,
++    input has_int,
++    input wb_ex,
++
++    input ws_allow_in,
++    output ms_allow_in,
++
++    input es_to_ms_valid,
++    output ms_to_ws_valid,
++
++    input [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
++    output [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
++    output [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus,
++    output                           if_ms_has_int,
++    
++    input [31:0] data_sram_rdata
++);
++
++/*-----------------------recerive es_to_ms_bus----------------*/
++/*
++assign es_to_ms_bus[31:0] = es_pc;
++assign es_to_ms_bus[32:32] = es_gr_we;
++assign es_to_ms_bus[33:33] = es_res_from_mem;
++assign es_to_ms_bus[38:34] = es_dest;
++assign es_to_ms_bus[70:39] = es_calcu_result;
++assign es_to_ms_bus[72:71] = es_unaligned_addr;
++assign es_to_ms_bus[77:73] = es_ld_op;
++
++//task12
++//task12
++assign es_to_ms_bus[91:78] = es_csr_rvalue;
++assign es_to_ms_bus[123:92] = es_csr_wmask;
++assign es_to_ms_bus[124:124] = es_csr_write;
++assign es_to_ms_bus[125:125] = es_ertn_flush;
++assign es_to_ms_bus[126:126] = es_csr;
++assign es_to_ms_bus[158:127] = es_csr_wvalue;
++assign es_to_ms_bus[159:159] = es_ex_syscall;
++assign es_to_ms_bus[174:160] = es_code;
++*/
++
++wire [31:0] ms_pc;
++wire ms_gr_we;
++wire ms_res_from_mem;
++wire [4:0] ms_dest;
++wire [31:0] ms_alu_result;
++wire [1:0] ms_unaligned_addr;
++wire [4:0] ms_ld_op;
++
++//task12
++wire [13:0] ms_csr_num;
++wire [31:0] ms_csr_wmask;
++wire        ms_csr_write;
++wire        ms_ertn_flush;
++wire        ms_csr;
++wire [31:0] ms_csr_wvalue;
++wire        ms_ex_syscall;
++wire [14:0] ms_code;
++
++reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
++always @(posedge clk)
++    begin
++        if(reset)
++            es_to_ms_bus_reg <= 0;
++        else if(ertn_flush || has_int || wb_ex)
++            es_to_ms_bus_reg <= 0;
++        else if(es_to_ms_valid && ms_allow_in)
++            es_to_ms_bus_reg <= es_to_ms_bus;
++        else
++            es_to_ms_bus_reg <= 0;
++    end 
++
++assign {ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
++        ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
++        ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
++
++/*-------------------------------------------------------*/
++
++/*----------------------deliver es_to_ws_bus-----------------*/
++wire [31:0] mem_result;
++wire [7:0] mem_byte;
++wire [15:0] mem_word;
++/* ld_op = (one hot)
++* 5'b00001 ld_w
++* 5'b00010 ld_b
++* 5'b00100 ld_bu
++* 5'b01000 ld_h
++* 5'b10000 ld_hu
++*/
++assign mem_byte = (ms_unaligned_addr==2'b00) ? data_sram_rdata[7:0] :
++                  (ms_unaligned_addr==2'b01) ? data_sram_rdata[15:8] : 
++                  (ms_unaligned_addr==2'b10) ? data_sram_rdata[23:16] :
++                  (ms_unaligned_addr==2'b11) ? data_sram_rdata[31:24] : 8'b0;
++
++assign mem_word = ms_unaligned_addr[1] ? data_sram_rdata[31:16] : data_sram_rdata[15:0];
++
++assign mem_result = ms_ld_op[0] ? data_sram_rdata : 
++                    ms_ld_op[1] ? {{24{mem_byte[7]}},mem_byte} :
++                    ms_ld_op[2] ? {24'b0,mem_byte} : 
++                    ms_ld_op[3] ? {{16{mem_word[15]}},mem_word} :
++                    ms_ld_op[4] ? {16'b0,mem_word} : 32'b0;
++
++wire [31:0] ms_final_result;
++assign ms_final_result = ms_res_from_mem? mem_result : ms_alu_result;
++
++assign ms_to_ws_bus[31:0]  = ms_pc;
++assign ms_to_ws_bus[32:32] = ms_gr_we;
++assign ms_to_ws_bus[37:33] = ms_dest;
++assign ms_to_ws_bus[69:38] = ms_final_result;
++
++//task12
++assign ms_to_ws_bus[83:70] = ms_csr_num;
++assign ms_to_ws_bus[115:84] = ms_csr_wmask;
++assign ms_to_ws_bus[116:116] = ms_csr_write;
++assign ms_to_ws_bus[117:117] = ms_ertn_flush;
++assign ms_to_ws_bus[118:118] = ms_csr;
++assign ms_to_ws_bus[150:119] = ms_csr_wvalue;
++assign ms_to_ws_bus[151:151] = ms_ex_syscall;
++assign ms_to_ws_bus[166:152] = ms_code;
++/*-------------------------------------------------------*/
++
++/*--------------------------valid------------------------*/
++reg ms_valid;    
++
++wire ms_ready_go;
++assign ms_ready_go = 1'b1;
++assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
++/*
++add conditions & ~ertn_flush & ~wb_ex & ~has_int
++because we can't use ertn_flush , wb_ex and has_int to clear ms_to_ws_bus_reg directly
++like the way we clear ds_to_es, es_to_ms bus_reg
++so we use another way to clear data from ms to ws
++make ms_to_ws_valid signal down when ertn_flush or wb_ex or has_int
++this will not influence fs, ds, es, ms 's signal including valid or allow_in
++so will not influence assembly line except for ws 
++when ms_to_ws_valid down, ws will not receive bus_reg
++and when ertn_flush / wb_ex / has_int disappear in next clk, 
++ms_to_ws_valid will raise again 
++*/
++assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex & ~has_int;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            ms_valid <= 1'b0;
++        else if(ms_allow_in)
++            ms_valid <= es_to_ms_valid;
++    end
++
++/*-------------------------------------------------------*/
++
++/*--------------------deliver ms_to_ds_bus-------------------*/
++//task12 add ms_csr_write, ms_csr_num
++assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result,
++                       ms_csr_write, ms_csr_num, ms_csr};
++/*-------------------------------------------------------*/
++
++/*--------------------deliver if_ms_has_int to es------------------*/
++//this signal is for helping ex_stage to judge if it should cancel inst_store due to exception
++// in task 12 we just consider syscall
++assign if_ms_has_int = ms_ex_syscall;
++
++/*-------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/WB.v b/cyt_code/ex12/WB.v
+new file mode 100644
+index 0000000..15d4115
+--- /dev/null
++++ b/cyt_code/ex12/WB.v
+@@ -0,0 +1,152 @@
++`include "width.vh"
++
++module stage5_WB(
++    input clk,
++    input reset,
++
++    //no allow in
++    output ws_allow_in,
++
++    input ms_to_ws_valid,
++    //no to valid
++
++    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
++    output [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
++
++    output [31:0] debug_wb_pc,
++    output [ 3:0] debug_wb_rf_we ,
++    output [ 4:0] debug_wb_rf_wnum,
++    output [31:0] debug_wb_rf_wdata,
++
++    //task12
++    output [`WIDTH_CSR_NUM-1:0] csr_num,
++    output                      csr_re,
++    input  [31:0]               csr_rvalue,
++
++    output                      csr_we,
++    output [31:0]               csr_wvalue,
++    output [31:0]               csr_wmask,
++    output                      ertn_flush,
++    output                      wb_ex,
++    output [31:0]               wb_pc,
++    output [5:0]                wb_ecode,
++    output [8:0]                wb_esubcode
++);
++
++/*-----------------------receive ms_to_ws_bus----------------*/
++/*
++assign ms_to_ws_bus[31:0]  = ms_pc;
++assign ms_to_ws_bus[32:32] = ms_gr_we;
++assign ms_to_ws_bus[37:33] = ms_dest;
++assign ms_to_ws_bus[69:38] = ms_final_result;
++
++//task12
++assign ms_to_ws_bus[83:70] = ms_csr_num;
++assign ms_to_ws_bus[115:84] = ms_csr_wmask;
++assign ms_to_ws_bus[116:116] = ms_csr_write;
++assign ms_to_ws_bus[117:117] = ms_ertn_flush;
++assign ms_to_ws_bus[118:118] = ms_csr;
++assign ms_to_ws_bus[150:119] = ms_csr_wvalue;
++assign ms_to_ws_bus[151:151] = ms_ex_syscall;
++assign ms_to_ws_bus[166:152] = ms_code;
++*/
++
++wire [31:0] ws_pc;
++wire ws_gr_we;
++wire [4:0] ws_dest;
++wire [31:0] ws_final_result;
++
++//task12
++wire [13:0] ws_csr_num;
++wire [31:0] ws_csr_wmask;
++wire        ws_csr_write;
++wire        ws_ertn_flush;
++wire        ws_csr;
++wire [31:0] ws_csr_wvalue;
++wire        ws_ex_syscall;
++wire [14:0] ws_code;
++
++reg [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus_reg;
++always @(posedge clk)
++    begin
++        if(reset)
++            ms_to_ws_bus_reg <= 0;
++        else if(ms_to_ws_valid && ws_allow_in)
++            ms_to_ws_bus_reg <= ms_to_ws_bus;
++        else
++            ms_to_ws_bus_reg <= 0;
++    end 
++
++assign {ws_code, ws_ex_syscall, ws_csr_wvalue, ws_csr, ws_ertn_flush, ws_csr_write, ws_csr_wmask, ws_csr_num,
++        ws_final_result, ws_dest,
++        ws_gr_we, ws_pc} = ms_to_ws_bus_reg;
++
++/*-------------------------------------------------------*/
++
++/*---------------------------link csr_reg---------------------*/
++assign csr_num = ws_csr_num;
++assign csr_re = 1'b1;
++//input [31:0] csr_rvalue
++
++assign csr_we = ws_csr_write;
++assign csr_wvalue = ws_csr_wvalue;
++assign csr_wmask = ws_csr_wmask;
++assign ertn_flush = ws_ertn_flush;
++
++assign wb_ex = ws_ex_syscall;    // assign wb_ex = ws_ex_syscall || ws_ex_xxx || ......
++assign wb_pc = ws_pc;
++
++/*
++ *deal with ecode and esubcode according to kind of ex
++ *in task12, we just finish syscall
++ */
++assign wb_ecode = ws_ex_syscall ? 6'hb : 6'h0;          //syscall
++assign wb_esubcode = ws_ex_syscall ? 9'h0 : 9'h0;       //syscall
++
++/*-------------------------------------------------------*/
++
++/*----------------------deliver ws_to_ds_bus-----------------*/
++
++reg ws_valid;    
++
++wire ws_we;
++assign ws_we = ws_gr_we && ws_valid;
++wire [4:0] ws_waddr;
++assign ws_waddr = ws_dest;
++wire [31:0] ws_wdata;
++assign ws_wdata = ws_csr? csr_rvalue : ws_final_result;
++
++assign ws_to_ds_bus[31:0] = ws_wdata;
++assign ws_to_ds_bus[36:32] = ws_waddr;
++assign ws_to_ds_bus[37:37] = ws_we;
++//task12 add
++assign ws_to_ds_bus[38:38] = ws_csr_write && ws_valid;
++assign ws_to_ds_bus[39:39] = ws_ertn_flush;
++assign ws_to_ds_bus[53:40] = ws_csr_num;
++assign ws_to_ds_bus[54:54] = ws_csr;
++
++/*-------------------------------------------------------*/
++
++/*--------------------------valid------------------------*/
++wire ws_ready_go;
++assign ws_ready_go = 1'b1;
++assign ws_allow_in = (!ws_valid || ws_ready_go);
++
++always @(posedge clk)
++    begin
++        if(reset)
++            ws_valid <= 1'b0;
++        else if(ws_allow_in)
++            ws_valid <= ms_to_ws_valid;
++    end
++
++/*-------------------------------------------------------*/
++
++/*--------------------------debug reference--------------*/
++assign debug_wb_pc       = ws_pc;
++assign debug_wb_rf_we   = {4{ws_we}};
++assign debug_wb_rf_wnum  = ws_dest;
++assign debug_wb_rf_wdata = ws_wdata;
++/*-------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/alu.v b/cyt_code/ex12/alu.v
+new file mode 100644
+index 0000000..7d86da7
+--- /dev/null
++++ b/cyt_code/ex12/alu.v
+@@ -0,0 +1,121 @@
++module alu(
++  input  wire [14:0] alu_op,
++  input  wire [31:0] alu_src1,
++  input  wire [31:0] alu_src2,
++  output wire [31:0] alu_result
++);
++
++wire op_add;   //add operation
++wire op_sub;   //sub operation
++wire op_slt;   //signed compared and set less than
++wire op_sltu;  //unsigned compared and set less than
++wire op_and;   //bitwise and
++wire op_nor;   //bitwise nor
++wire op_or;    //bitwise or
++wire op_xor;   //bitwise xor
++wire op_sll;   //logic left shift
++wire op_srl;   //logic right shift
++wire op_sra;   //arithmetic right shift
++wire op_lui;   //Load Upper Immediate
++wire op_mul_w;
++wire op_mulh_w;
++wire op_mulh_wu;
++
++// control code decomposition
++assign op_add  = alu_op[ 0];
++assign op_sub  = alu_op[ 1];
++assign op_slt  = alu_op[ 2];
++assign op_sltu = alu_op[ 3];
++assign op_and  = alu_op[ 4];
++assign op_nor  = alu_op[ 5];
++assign op_or   = alu_op[ 6];
++assign op_xor  = alu_op[ 7];
++assign op_sll  = alu_op[ 8];
++assign op_srl  = alu_op[ 9];
++assign op_sra  = alu_op[10];
++assign op_lui  = alu_op[11];
++assign op_mul_w = alu_op[12];
++assign op_mulh_w = alu_op[13];
++assign op_mulh_wu = alu_op[14];
++
++wire [31:0] add_sub_result;
++wire [31:0] slt_result;
++wire [31:0] sltu_result;
++wire [31:0] and_result;
++wire [31:0] nor_result;
++wire [31:0] or_result;
++wire [31:0] xor_result;
++wire [31:0] lui_result;
++wire [31:0] sll_result;
++wire [63:0] sr64_result;
++wire [31:0] sr_result;
++wire [31:0] mulw_result;
++wire [31:0] mulhw_result;
++wire [31:0] mulhwu_result;
++
++
++// 32-bit adder
++wire [31:0] adder_a;
++wire [31:0] adder_b;
++wire        adder_cin;
++wire [31:0] adder_result;
++wire        adder_cout;
++
++assign adder_a   = alu_src1;
++assign adder_b   = (op_sub | op_slt | op_sltu) ? ~alu_src2 : alu_src2;  //src1 - src2 rj-rk
++assign adder_cin = (op_sub | op_slt | op_sltu) ? 1'b1      : 1'b0;
++assign {adder_cout, adder_result} = adder_a + adder_b + adder_cin;
++
++// ADD, SUB result
++assign add_sub_result = adder_result;
++
++// SLT result
++assign slt_result[31:1] = 31'b0;   //rj < rk 1
++assign slt_result[0]    = (alu_src1[31] & ~alu_src2[31])
++                        | ((alu_src1[31] ~^ alu_src2[31]) & adder_result[31]);
++
++// SLTU result
++assign sltu_result[31:1] = 31'b0;
++assign sltu_result[0]    = ~adder_cout;
++
++// bitwise operation
++assign and_result = alu_src1 & alu_src2;
++assign or_result  = alu_src1 | alu_src2;
++assign nor_result = ~or_result;  
++assign xor_result = alu_src1 ^ alu_src2;
++assign lui_result = alu_src2;
++
++// SLL result
++assign sll_result = alu_src1 << alu_src2[4:0];   //rj << i5
++
++// SRL, SRA result
++assign sr64_result = {{32{op_sra & alu_src1[31]}}, alu_src1[31:0]} >> alu_src2[4:0]; //rj >> i5
++
++assign sr_result   = sr64_result[31:0];
++
++// mulw, mulh_w, mulh_wu
++wire [32:0] mul_src1, mul_src2;
++wire [65:0] temp_result;
++wire [31:0] mul_result;
++
++assign mul_src1 = (op_mul_w || op_mulh_w) ? {alu_src1[31],alu_src1} : {1'b0,alu_src1};
++assign mul_src2 = (op_mul_w || op_mulh_w) ? {alu_src2[31],alu_src2} : {1'b0,alu_src2};
++
++assign temp_result = $signed(mul_src1) * $signed(mul_src2);
++
++assign mul_result = op_mul_w? temp_result[31:0] : temp_result[63:32];
++
++// final result mux
++assign alu_result = ({32{op_add|op_sub}} & add_sub_result)
++                  | ({32{op_slt       }} & slt_result)
++                  | ({32{op_sltu      }} & sltu_result)
++                  | ({32{op_and       }} & and_result)
++                  | ({32{op_nor       }} & nor_result)
++                  | ({32{op_or        }} & or_result)
++                  | ({32{op_xor       }} & xor_result)
++                  | ({32{op_lui       }} & lui_result)
++                  | ({32{op_sll       }} & sll_result)
++                  | ({32{op_srl|op_sra}} & sr_result)
++                  | ({32{op_mul_w|op_mulh_w|op_mulh_wu}} & mul_result);
++
++endmodule
+diff --git a/cyt_code/ex12/csr_reg.v b/cyt_code/ex12/csr_reg.v
+new file mode 100644
+index 0000000..bd9667e
+--- /dev/null
++++ b/cyt_code/ex12/csr_reg.v
+@@ -0,0 +1,475 @@
++`include "width.vh"
++
++module csr_reg(
++    input                         clk,
++    input                         reset,
++
++    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //寄存器号
++
++    input                         csr_re,            //读使能
++    output             [31:0]     csr_rvalue,        //读数据
++    output             [31:0]     ertn_pc,
++    output             [31:0]     ex_entry,
++
++    input                         csr_we,            //写使能
++    input              [31:0]     csr_wmask,         //写掩码
++    input              [31:0]     csr_wvalue,        //写数据
++
++    input                         wb_ex,             //写回级异常
++    input              [31:0]     wb_pc,             //异常pc
++    input                         ertn_flush,        //ertn指令执行有效信号
++    input              [5:0]      wb_ecode,          //异常类型1级码
++    input              [8:0]      wb_esubcode,       //异常类型2级码
++    input              [31:0]     wb_vaddr, 
++    input              [31:0]     coreid_in,
++
++    output                        has_int,
++    input              [7:0]      hw_int_in,
++    input                         ipi_int_in
++);
++
++/*
++寄存器号：
++`define CSR_CRMD 0x0
++`define CSR_PRMD 0x1
++`define CSR_ECFG 0x4
++`define CSR_ESTAT 0x5
++`define CSR_ERA 0x6
++`define CSR_BADV 0x7
++`define CSR_EENTRY 0xc
++`define CSR_SAVE0 0x30
++`define CSR_SAVE1 0x31
++`define CSR_SAVE2 0x32
++`define CSR_SAVE3 0x33
++`define CSR_TID 0x40
++`define CSR_TCFG 0x41
++`define CSR_TVAL 0x42
++`define CSR_TICLR 0x44
++*/
++
++/*
++CSR分区
++*/
++
++/*--------------------------当前模式信息 CRMD-------------------------*/
++
++
++//当前特权等级
++/*
++2'b00: 最高特权级  2'b11：最低特权等级
++触发特例时应将plv设为0，确保陷入后处于内核态最高特权等级
++当执行ERTN指令从例外处理程序返回时，讲CSR_PRMD[PPLV] --> CSR_CRMD[PLV]
++*/
++reg [1:0] csr_crmd_plv;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_crmd_plv <= 2'b0;
++        else if(wb_ex)
++            csr_crmd_plv <= 2'b0;
++        else if(ertn_flush)
++            csr_crmd_plv <= csr_prmd_pplv;
++        else if(csr_we && csr_num == `CSR_CRMD)
++            csr_crmd_plv <= csr_wmask[`CSR_CRMD_PLV] & csr_wvalue[`CSR_CRMD_PLV]
++                         | ~csr_wmask[`CSR_CRMD_PLV] & csr_crmd_plv;
++    end
++
++//当前全局中断使能
++/*
++1'b1：可中断    1'b0：屏蔽中断
++当触发例外时，硬件置为0，确保陷入后屏蔽中断
++例外处理程序决定重新开启中断响应时，显示设1
++当执行ERTN指令从例外处理程序返回时，讲CSR_PRMD[IE] --> CSR_CRMD[IE]
++*/
++reg csr_crmd_ie;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_crmd_ie <= 1'b0;
++        else if(wb_ex)
++            //进入中断后，关闭中断使能
++            csr_crmd_ie <= 1'b0;
++        else if(ertn_flush)
++            csr_crmd_ie <= csr_prmd_pie;
++        else if(csr_we && csr_num == `CSR_CRMD)
++            csr_crmd_ie <= csr_wmask[`CSR_CRMD_IE] & csr_wvalue[`CSR_CRMD_IE]
++                        | ~csr_wmask[`CSR_CRMD_IE] & csr_crmd_ie;
++    end
++
++//直接地址翻译使能 --> 初始化置为1
++reg csr_crmd_da;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_crmd_da <= 1'b1;
++    end
++
++//暂未使用
++reg csr_crmd_pg;
++reg [1:0] csr_crmd_datf;
++reg [1:0] csr_crmd_datm;
++reg [22:0] csr_crmd_zero;
++
++/*---------------------------------------------------------------------*/
++
++/*--------------------------例外前模式信息 PRMD-------------------------*/
++
++reg [1:0] csr_prmd_pplv;
++reg csr_prmd_pie;
++
++always @(posedge clk)
++    begin
++        if(wb_ex)
++            begin
++                csr_prmd_pplv <= csr_crmd_plv;
++                csr_prmd_pie  <= csr_crmd_ie;
++            end
++        else if(csr_we && csr_num == `CSR_PRMD)
++            begin
++                csr_prmd_pplv <= csr_wmask[`CSR_PRMD_PPLV] & csr_wvalue[`CSR_PRMD_PPLV]
++                              | ~csr_wmask[`CSR_PRMD_PPLV] & csr_prmd_pplv;
++                csr_prmd_pie  <= csr_wmask[`CSR_PRMD_PIE] & csr_wvalue[`CSR_PRMD_PIE]
++                              | ~csr_wmask[`CSR_PRMD_PIE] & csr_prmd_pie;
++            end
++    end
++
++//暂未使用的
++reg [28:0] reg_prmd_zero;
++
++/*---------------------------------------------------------------------*/
++
++/*--------------------------例外控制 ECFG-------------------------------*/
++
++//控制各中断的局部使能位
++/*
++1'b1：可中断    1'b0：屏蔽中断
++低10位局部中断使能位与CSR_ESTAT中IS[9:0]域记录的10个中断源一一对应
++12:11位局部中断使能位与CSR_ESTAT中IS[12:11]域记录的2个中断源一一对应
++*/
++reg [12:0] csr_ecfg_lie;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_ecfg_lie <= 13'b0;
++        else if(csr_we && csr_num == `CSR_ECFG)
++            csr_ecfg_lie <= csr_wmask[`CSR_ECFG_LIE] & csr_wvalue[`CSR_ECFG_LIE]
++                         | ~csr_wmask[`CSR_ECFG_LIE] & csr_ecfg_lie;
++    end
++
++//暂未使用的
++reg [18:0] csr_ecgh_zero;
++
++/*---------------------------------------------------------------------*/
++
++/*--------------------------例外状态 ESTAT-------------------------------*/
++
++//2个软中断状态位， 0和1比特分别对应SWI0 和 SWI1
++//8个硬中断状态位， 2至9比特分贝对应HWI0 到 HWI7
++//1个保留域
++//第11位对应定时器中断TI的状态位
++//第12位对应核间中断
++reg [12:0] csr_estat_is;
++
++always @(posedge clk)
++    begin
++        //软中断位 -- RW
++        if(reset)
++            csr_estat_is[`CSR_ESTAT_IS_SOFT] <= 2'b0;
++        else if(csr_we && csr_num == `CSR_ESTAT)
++            csr_estat_is[`CSR_ESTAT_IS_SOFT] <= csr_wmask[`CSR_ESTAT_IS_SOFT] & csr_wvalue[`CSR_ESTAT_IS_SOFT]
++                              | ~csr_wmask[`CSR_ESTAT_IS_SOFT] & csr_estat_is[`CSR_ESTAT_IS_SOFT] ;
++
++        //硬中断位 -- R
++        csr_estat_is[`CSR_ESTAT_IS_HARD] <= hw_int_in[7:0];
++
++        //保留位
++        csr_estat_is[`CSR_ESTAT_IS_LEFT1] <= 1'b0;
++
++        //时钟中断 -- R 但是写CSR_TICLR_CLR可改变CSR_ESTAT_IS_TI
++        if(timer_cnt[31:0] == 32'b0)
++            csr_estat_is[`CSR_ESTAT_IS_TI] <= 1'b1;
++        else if(csr_we && csr_num == `CSR_TICLR && csr_wmask[`CSR_TICLR_CLR]
++                && csr_wvalue[`CSR_TICLR_CLR])
++            //对CSR_TICLR定时中断清除寄存器的CLR位写1 代表 清除时钟中断标记
++            csr_estat_is[`CSR_ESTAT_IS_TI] <= 1'b0;
++
++        //核间中断标记
++        csr_estat_is[`CSR_ESTAT_IS_IPI] <= ipi_int_in;
++    end
++
++//保留位
++reg [2:0] csr_estat_left;
++
++//中断类型1级2级编码
++reg [5:0] csr_estat_ecode;
++reg [8:0] csr_estat_esubcode;
++
++always @(posedge clk)
++    begin
++        if(wb_ex)
++            begin
++                csr_estat_ecode <= wb_ecode;
++                csr_estat_esubcode <= wb_esubcode;
++            end
++    end
++
++//暂未使用的
++reg csr_estat_zero;
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------例外返回地址 ERA-------------------------------*/
++
++//触发例外的指令PC将被记录在EPC寄存器
++reg [31:0] csr_era_pc;
++
++always @(posedge clk)
++    begin
++        if(wb_ex)
++            csr_era_pc <= wb_pc;
++        else if(csr_we && csr_num == `CSR_ERA)
++            csr_era_pc <= csr_wmask[`CSR_ERA_PC] & csr_wvalue[`CSR_ERA_PC]
++                       | ~csr_wmask[`CSR_ERA_PC] & csr_era_pc; 
++    end
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------出错虚地址 BADV-------------------------------*/
++
++//触发地址错误相关例外时，记录出错的虚地址
++reg [31:0] csr_badv_vaddr;
++
++wire wb_ex_addr_err;
++/*
++ECODE_ADEF: 取值地址错例外
++ECODE_ADEM：访存指令地址错例外
++ECODE_ALE：地址非对齐例外
++*/
++assign wb_ex_addr_err = (wb_ecode == `ECODE_ADE) || (wb_ecode == `ECODE_ALE);
++
++always @(posedge clk)
++    begin
++        if(wb_ex && wb_ex_addr_err)
++            csr_badv_vaddr <= (wb_ecode == `ECODE_ADE && 
++                               wb_esubcode == `ESUBCODE_ADEF) ? wb_pc : wb_vaddr;
++    end
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------例外入口地址 EENTRY-------------------------------*/
++
++//EENTRY用于配置除TLB充填例外之外的例外和中断的入口地址
++//只能由CSR指令更新
++reg [5:0] csr_eentry_zero;
++reg [25:0] csr_eentry_va;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_eentry_zero <= 6'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(csr_we && csr_num == `CSR_EENTRY)
++            csr_eentry_va <= csr_wmask[`CSR_EENTRY_VA] & csr_wvalue[`CSR_EENTRY_VA]
++                          | ~csr_wmask[`CSR_EENTRY_VA] & csr_eentry_va;
++    end
++/*---------------------------------------------------------------------*/
++
++/*-----------------------临时寄存器 SAVE0-3-------------------------------*/
++
++reg [31:0] csr_save0_data;
++reg [31:0] csr_save1_data;
++reg [31:0] csr_save2_data;
++reg [31:0] csr_save3_data;
++
++always @(posedge clk)
++    begin
++        if(csr_we && csr_num == `CSR_SAVE0)
++            csr_save0_data <= csr_wmask[`CSR_SAVE_DATA] & csr_wvalue[`CSR_SAVE_DATA]
++                           | ~csr_wmask[`CSR_SAVE_DATA] & csr_save0_data;
++
++        if(csr_we && csr_num == `CSR_SAVE1)
++            csr_save1_data <= csr_wmask[`CSR_SAVE_DATA] & csr_wvalue[`CSR_SAVE_DATA]
++                           | ~csr_wmask[`CSR_SAVE_DATA] & csr_save1_data;
++
++        if(csr_we && csr_num == `CSR_SAVE2)
++            csr_save2_data <= csr_wmask[`CSR_SAVE_DATA] & csr_wvalue[`CSR_SAVE_DATA]
++                           | ~csr_wmask[`CSR_SAVE_DATA] & csr_save2_data;
++
++        if(csr_we && csr_num == `CSR_SAVE3)
++            csr_save3_data <= csr_wmask[`CSR_SAVE_DATA] & csr_wvalue[`CSR_SAVE_DATA]
++                           | ~csr_wmask[`CSR_SAVE_DATA] & csr_save3_data;
++    end
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------定时器编号寄存器 TID-------------------------------*/
++
++//定时器编号寄存器
++reg [31:0] csr_tid_tid;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_tid_tid <= coreid_in;
++        else if(csr_we && csr_num == `CSR_TID)
++            csr_tid_tid <= csr_wmask[`CSR_TID_TID] & csr_wvalue[`CSR_TID_TID]
++                        | ~csr_wmask[`CSR_TID_TID] & csr_tid_tid;
++    end
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------定时器配置寄存器 TCFG-------------------------------*/
++
++//定时器使能位，en为1时定时器才会进行倒计时自检，并在减为0时置起定时中断信号
++reg csr_tcfg_en;
++//定时器循环模式控制位，为1时会循环
++reg csr_tcfg_periodic;
++//定时器倒计时自减计数的初始值
++reg [29:0] csr_tcfg_initval;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            csr_tcfg_en <= 1'b0;
++        else if(csr_we && csr_num == `CSR_TCFG)
++            csr_tcfg_en <= csr_wmask[`CSR_TCFG_EN] & csr_wvalue[`CSR_TCFG_EN]
++                        | ~csr_wmask[`CSR_TCFG_EN] & csr_tcfg_en;
++
++        if(csr_we && csr_num == `CSR_TCFG)
++            csr_tcfg_periodic <= csr_wmask[`CSR_TCFG_PERIODIC] & csr_wvalue[`CSR_TCFG_PERIODIC]
++                              | ~csr_wmask[`CSR_TCFG_PERIODIC] & csr_tcfg_periodic;
++            csr_tcfg_initval  <= csr_wmask[`CSR_TCFG_INITVAL] & csr_wvalue[`CSR_TCFG_INITVAL]
++                              | ~csr_wmask[`CSR_TCFG_INITVAL] & csr_tcfg_initval;
++    end
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------TVAL的TimeVal域-------------------------------*/
++
++wire [31:0] tcfg_cur_value;
++wire [31:0] tcfg_next_value;
++wire [31:0] csr_tval;
++reg  [31:0] timer_cnt;
++
++/*
++这里用两个wire类型信号定义cur_tcfg 和 next_tcfg
++是为了能在当软件开启timer的使能的同时发起timer_cnt的更新操作
++即在下面的时序逻辑中的
++        else if(csr_we && csr_num == `CSR_TCFG && tcfg_next_value[`CSR_TCFG_EN])
++            timer_cnt <= {tcfg_next_value[`CSR_TCFG_INITVAL], 2'b0};
++        将此时写入的timer配置寄存器的定时器初始值更新到timer_cnt中
++
++因为是在软件写TCFG的同时更新timer，
++所以要看当前写入TCFG寄存器的值(next_value)，而不是用cur_value
++*/
++
++/*
++当timer_cnt减到全0且定时器不是周期性工作模式情况下。
++timer_cnt继续减1变成32'hffffffff,之后应当停止即使，
++所以timer_cnt自减的条件包含timer_cnt!=32'hffffffff
++
++周期性工作模式下，就重置为{csr_tcfg_initval, 2'b0}
++*/
++
++assign tcfg_cur_value = {csr_tcfg_initval, csr_tcfg_periodic, csr_tcfg_en};
++assign tcfg_next_value = csr_wmask[31:0] & csr_wvalue[31:0]
++                      | ~csr_wmask[31:0] & tcfg_cur_value;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            timer_cnt <= 32'hffffffff;
++        else if(csr_we && csr_num == `CSR_TCFG && tcfg_next_value[`CSR_TCFG_EN])
++            timer_cnt <= {tcfg_next_value[`CSR_TCFG_INITVAL], 2'b0};
++        else if(csr_tcfg_en && timer_cnt!=32'hffffffff)
++            begin
++                if(timer_cnt[31:0]==32'b0 && csr_tcfg_periodic)
++                    //循环计时
++                    timer_cnt <= {csr_tcfg_initval, 2'b0};
++                else
++                    timer_cnt <= timer_cnt - 1'b1;
++            end
++    end
++
++assign csr_tval = timer_cnt[31:0];
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------TICLR的CLR域----------------------------------*/
++
++//软件通过对TICLR寄存器位0写1来清除定时器置起的定时中断信号
++//CLR域的读写属性位W1,意味着软件对它写1才会产生执行效果，执行效果
++//具体体现在TCFG_EN上，但CLR域的值实际上不变，恒为0
++wire csr_ticlr_clr;
++assign csr_ticlr_clr = 1'b0;
++
++/*---------------------------------------------------------------------*/
++
++/*-----------------------rvalue----------------------------------------*/
++wire [31:0] csr_crmd_rvalue;
++wire [31:0] csr_prmd_rvalue;
++wire [31:0] csr_ecfg_rvalue;
++wire [31:0] csr_estat_rvalue;
++wire [31:0] csr_era_rvalue;
++wire [31:0] csr_badv_rvalue;
++wire [31:0] csr_eentey_rvalue;
++wire [31:0] csr_save0_rvalue;
++wire [31:0] csr_save1_rvalue;
++wire [31:0] csr_save2_rvalue;
++wire [31:0] csr_save3_rvalue;
++wire [31:0] csr_tid_rvalue;
++wire [31:0] csr_tcfg_rvalue;
++wire [31:0] csr_tval_rvalue;
++
++assign csr_crmd_rvalue = {28'b0, csr_crmd_da, csr_crmd_ie, csr_crmd_plv};
++assign csr_prmd_rvalue = {29'b0, csr_prmd_pie, csr_prmd_pplv};
++assign csr_ecfg_rvalue = {19'b0, csr_ecfg_lie};
++assign csr_estat_rvalue = {1'b0, csr_estat_esubcode, csr_estat_ecode, 
++                           3'b0, csr_estat_is};
++assign csr_era_rvalue = csr_era_pc;
++assign csr_badv_rvalue = csr_badv_vaddr;
++assign csr_eentey_rvalue = {csr_eentry_va, 6'b0};
++assign csr_save0_rvalue = csr_save0_data;
++assign csr_save1_rvalue = csr_save1_data;
++assign csr_save2_rvalue = csr_save2_data;
++assign csr_save3_rvalue = csr_save3_data;
++assign csr_tid_rvalue = csr_tid_tid;
++assign csr_tcfg_rvalue = {csr_tcfg_initval, csr_tcfg_periodic, csr_tcfg_en};
++assign csr_tval_rvalue = csr_tval;
++
++assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
++                  | {32{csr_num==`CSR_PRMD}} & csr_prmd_rvalue
++                  | {32{csr_num==`CSR_ECFG}} & csr_ecfg_rvalue
++                  | {32{csr_num==`CSR_ESTAT}} & csr_estat_rvalue
++                  | {32{csr_num==`CSR_ERA}} & csr_era_rvalue
++                  | {32{csr_num==`CSR_BADV}} & csr_badv_rvalue
++                  | {32{csr_num==`CSR_EENTRY}} & csr_eentey_rvalue
++                  | {32{csr_num==`CSR_SAVE0}} & csr_save0_rvalue
++                  | {32{csr_num==`CSR_SAVE1}} & csr_save1_rvalue
++                  | {32{csr_num==`CSR_SAVE2}} & csr_save2_rvalue
++                  | {32{csr_num==`CSR_SAVE3}} & csr_save3_rvalue
++                  | {32{csr_num==`CSR_TID}} & csr_tid_rvalue
++                  | {32{csr_num==`CSR_TCFG}} & csr_tcfg_rvalue
++                  | {32{csr_num==`CSR_TVAL}} & csr_tval_rvalue;
++
++/*---------------------------------------------------------------------*/
++
++/*-------------------------------output--------------------------------*/
++
++assign ertn_pc = csr_era_rvalue;
++assign ex_entry = csr_eentey_rvalue;
++
++assign has_int = ((csr_estat_is[11:0] & csr_ecfg_lie[11:0]) != 12'b0)
++                && (csr_crmd_ie == 1'b1);
++
++
++/*---------------------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/mycpu_top.v b/cyt_code/ex12/mycpu_top.v
+new file mode 100644
+index 0000000..50a8fba
+--- /dev/null
++++ b/cyt_code/ex12/mycpu_top.v
+@@ -0,0 +1,279 @@
++`include "width.vh"
++/*
++`include "stage1_IF.v"
++`include "stage2_ID.v"
++`include "stage3_EX.v"
++`include "stage4_MEM.v"
++`include "stage5_WB.v"
++*/
++
++module mycpu_top(
++    input  wire        clk,
++    input  wire        resetn,
++    // inst sram interface
++    output wire        inst_sram_en,
++    output wire [3:0]  inst_sram_we,      
++    output wire [31:0] inst_sram_addr,
++    output wire [31:0] inst_sram_wdata,
++    input  wire [31:0] inst_sram_rdata,
++    // data sram interface
++    output wire        data_sram_en,
++    output wire [3:0]  data_sram_we,
++    output wire [31:0] data_sram_addr,
++    output wire [31:0] data_sram_wdata,
++    input  wire [31:0] data_sram_rdata,
++    // trace debug interface
++    output wire [31:0] debug_wb_pc,
++    output wire [ 3:0] debug_wb_rf_we,
++    output wire [ 4:0] debug_wb_rf_wnum,
++    output wire [31:0] debug_wb_rf_wdata
++);
++wire         reset;
++assign reset = ~resetn;
++
++wire [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus;
++wire ds_allow_in;
++wire fs_to_ds_valid;
++wire [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus;
++wire es_allow_in;
++wire ds_to_es_valid;
++wire [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus;
++wire ms_allow_in;
++wire es_to_ms_valid;
++wire [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus;
++wire ws_allow_in;
++wire ms_to_ws_valid;
++wire [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
++
++wire [`WIDTH_BR_BUS -1:0] br_bus;
++wire [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus;
++wire [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus;
++
++//task12 -- from ms to es --> help judge store
++wire if_ms_has_int;
++
++//task12 -- csr_num
++wire [`WIDTH_CSR_NUM-1:0] csr_num;
++wire                      csr_re;
++wire [31:0]               csr_rvalue;
++wire [31:0]               ertn_pc;
++wire [31:0]               ex_entry;
++
++wire                      csr_we;
++wire [31:0]               csr_wvalue;
++wire [31:0]               csr_wmask;
++
++wire                      wb_ex;
++wire [31:0]               wb_pc; 
++wire                      ertn_flush;
++wire [5:0]                wb_ecode;
++wire [8:0]                wb_esubcode;
++wire [31:0]               wb_vaddr;
++wire [31:0]               coreid_in;
++
++wire                      has_int;
++wire [7:0]                hw_int_in = 8'b0;
++wire                      ipi_int_in = 1'b0;
++
++/*---------------------------FETCH--------------------------*/
++
++stage1_IF fetch(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush),
++    .has_int            (has_int),
++    .ertn_pc            (ertn_pc),
++    .ex_entry           (ex_entry),
++    .wb_ex              (wb_ex),
++
++    .ds_allow_in        (ds_allow_in),
++    .br_bus             (br_bus),
++    .fs_to_ds_valid     (fs_to_ds_valid),
++    .fs_to_ds_bus       (fs_to_ds_bus),
++    .inst_sram_en       (inst_sram_en),
++    .inst_sram_wen      (inst_sram_we),
++    .inst_sram_addr     (inst_sram_addr),
++    .inst_sram_wdata    (inst_sram_wdata),
++    .inst_sram_rdata    (inst_sram_rdata)
++);
++
++/*----------------------------------------------------------*/
++
++
++/*---------------------------DECODE--------------------------*/
++
++stage2_ID decode(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush), 
++    .has_int            (has_int),
++    .wb_ex              (wb_ex),
++
++    .es_allow_in        (es_allow_in),
++    .ds_allow_in        (ds_allow_in),
++
++    .fs_to_ds_valid     (fs_to_ds_valid),
++    .ds_to_es_valid     (ds_to_es_valid),
++
++    .fs_to_ds_bus       (fs_to_ds_bus),
++    .ds_to_es_bus       (ds_to_es_bus),
++
++    .ws_to_ds_bus       (ws_to_ds_bus),
++    .br_bus             (br_bus),
++
++    .es_to_ds_bus       (es_to_ds_bus),
++    .ms_to_ds_bus       (ms_to_ds_bus)
++);
++
++/*----------------------------------------------------------*/
++
++
++/*---------------------------EXCUTE-------------------------*/
++
++stage3_EX ex(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush),
++    .has_int            (has_int),
++    .wb_ex              (wb_ex),
++
++    .ms_allow_in        (ms_allow_in),
++    .es_allow_in        (es_allow_in),
++
++    .ds_to_es_valid     (ds_to_es_valid),
++    .es_to_ms_valid     (es_to_ms_valid),
++
++    .ds_to_es_bus       (ds_to_es_bus),
++    .es_to_ms_bus       (es_to_ms_bus),
++    .es_to_ds_bus       (es_to_ds_bus),
++    .if_ms_has_int      (if_ms_has_int),
++
++    .data_sram_en       (data_sram_en),
++    .data_sram_wen      (data_sram_we),
++    .data_sram_addr     (data_sram_addr),
++    .data_sram_wdata    (data_sram_wdata)
++);
++
++/*----------------------------------------------------------*/
++
++/*---------------------------MEM----------------------------*/
++
++stage4_MEM mem(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush),
++    .has_int            (has_int),
++    .wb_ex              (wb_ex),
++
++    .ws_allow_in        (ws_allow_in),
++    .ms_allow_in        (ms_allow_in),
++
++    .es_to_ms_valid     (es_to_ms_valid),
++    .ms_to_ws_valid     (ms_to_ws_valid),
++
++    .es_to_ms_bus       (es_to_ms_bus),
++    .ms_to_ws_bus       (ms_to_ws_bus),
++    .ms_to_ds_bus       (ms_to_ds_bus),
++    .if_ms_has_int      (if_ms_has_int),
++
++    .data_sram_rdata    (data_sram_rdata)
++);
++
++/*----------------------------------------------------------*/
++
++/*---------------------------WBACK--------------------------*/
++
++stage5_WB wb(
++    .clk                (clk),
++    .reset              (reset),
++
++    .ws_allow_in        (ws_allow_in),
++
++    .ms_to_ws_valid     (ms_to_ws_valid),
++
++    .ms_to_ws_bus       (ms_to_ws_bus),
++    .ws_to_ds_bus       (ws_to_ds_bus),
++
++    .debug_wb_pc        (debug_wb_pc),
++    .debug_wb_rf_we     (debug_wb_rf_we),
++    .debug_wb_rf_wnum   (debug_wb_rf_wnum),
++    .debug_wb_rf_wdata  (debug_wb_rf_wdata),
++
++    //task12 add
++    .csr_num            (csr_num),
++    .csr_re             (csr_re),
++    .csr_rvalue         (csr_rvalue),
++    .csr_we             (csr_we),
++    .csr_wvalue         (csr_wvalue),
++    .csr_wmask          (csr_wmask),
++    .ertn_flush         (ertn_flush),
++    .wb_ex              (wb_ex),
++    .wb_pc              (wb_pc),
++    .wb_ecode           (wb_ecode),
++    .wb_esubcode        (wb_esubcode)
++);
++
++/*----------------------------------------------------------*/
++
++/*
++module csr_reg(
++    input                         clk,
++    input                         reset,
++
++    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //瀵勫瓨鍣ㄥ彿
++
++    input                         csr_re,            //璇讳娇鑳?+    output             [31:0]     csr_rvalue,        //璇绘暟鎹?+    output             [31:0]     ertn_pc,
++    output             [31:0]     ex_entry,
++
++    input                         csr_we,            //鍐欎娇鑳?+    input              [31:0]     csr_wmask,         //鍐欐帺鐮?+    input              [31:0]     csr_wvalue,        //鍐欐暟鎹?+
++    input                         wb_ex,             //鍐欏洖绾у紓甯?+    input              [31:0]     wb_pc,             //寮傚父pc
++    input                         ertn_flush,        //ertn鎸囦护鎵ц鏈夋晥淇″彿
++    input              [5:0]      wb_ecode,          //寮傚父绫诲瀷1绾х爜
++    input              [8:0]      wb_esubcode,       //寮傚父绫诲瀷2绾х爜
++    input              [31:0]     wb_vaddr, 
++    input              [31:0]     coreid_in,
++
++    output                        has_int,
++    input              [7:0]      hw_int_in,
++    input                         ipi_int_in
++);
++*/
++
++/*---------------------------csr_reg--------------------------*/
++csr_reg cr(
++    .clk                (clk),
++    .reset              (reset),
++
++    .csr_num            (csr_num),
++    
++    .csr_re             (csr_re),
++    .csr_rvalue         (csr_rvalue),
++    .ertn_pc            (ertn_pc),
++    .ex_entry           (ex_entry),
++
++    .csr_we             (csr_we),
++    .csr_wmask          (csr_wmask),
++    .csr_wvalue         (csr_wvalue),
++
++    .wb_ex              (wb_ex),
++    .wb_pc              (wb_pc),
++    .ertn_flush         (ertn_flush),
++    .wb_ecode           (wb_ecode),
++    .wb_esubcode        (wb_esubcode), 
++    .wb_vaddr           (wb_vaddr),
++    .coreid_in          (coreid_in),
++
++    .has_int            (has_int),
++    .hw_int_in          (hw_int_in),
++    .ipi_int_in         (ipi_int_in)
++);
++
++/*------------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/ex12/regfile.v b/cyt_code/ex12/regfile.v
+new file mode 100644
+index 0000000..3f83aac
+--- /dev/null
++++ b/cyt_code/ex12/regfile.v
+@@ -0,0 +1,27 @@
++module regfile(
++    input  wire        clk,
++    // READ PORT 1
++    input  wire [ 4:0] raddr1,
++    output wire [31:0] rdata1,
++    // READ PORT 2
++    input  wire [ 4:0] raddr2,
++    output wire [31:0] rdata2,
++    // WRITE PORT
++    input  wire        we,       //write enable, HIGH valid
++    input  wire [ 4:0] waddr,
++    input  wire [31:0] wdata
++);
++reg [31:0] rf[31:0];
++
++//WRITE
++always @(posedge clk) begin
++    if (we) rf[waddr] <= wdata;
++end
++
++//READ OUT 1
++assign rdata1 = (raddr1==5'b0) ? 32'b0 : rf[raddr1];
++
++//READ OUT 2
++assign rdata2 = (raddr2==5'b0) ? 32'b0 : rf[raddr2];
++
++endmodule
+diff --git a/cyt_code/ex12/tools.v b/cyt_code/ex12/tools.v
+new file mode 100644
+index 0000000..e713a45
+--- /dev/null
++++ b/cyt_code/ex12/tools.v
+@@ -0,0 +1,50 @@
++module decoder_2_4(
++    input  wire [ 1:0] in,
++    output wire [ 3:0] out
++);
++
++genvar i;
++generate for (i=0; i<4; i=i+1) begin : gen_for_dec_2_4
++    assign out[i] = (in == i);
++end endgenerate
++
++endmodule
++
++
++module decoder_4_16(
++    input  wire [ 3:0] in,
++    output wire [15:0] out
++);
++
++genvar i;
++generate for (i=0; i<16; i=i+1) begin : gen_for_dec_4_16
++    assign out[i] = (in == i);
++end endgenerate
++
++endmodule
++
++
++module decoder_5_32(
++    input  wire [ 4:0] in,
++    output wire [31:0] out
++);
++
++genvar i;
++generate for (i=0; i<32; i=i+1) begin : gen_for_dec_5_32
++    assign out[i] = (in == i);
++end endgenerate
++
++endmodule
++
++
++module decoder_6_64(
++    input  wire [ 5:0] in,
++    output wire [63:0] out
++);
++
++genvar i;
++generate for (i=0; i<63; i=i+1) begin : gen_for_dec_6_64
++    assign out[i] = (in == i);
++end endgenerate
++
++endmodule
+diff --git a/cyt_code/ex12/width.vh b/cyt_code/ex12/width.vh
+new file mode 100644
+index 0000000..a2014ed
+--- /dev/null
++++ b/cyt_code/ex12/width.vh
+@@ -0,0 +1,122 @@
++`define WIDTH_BR_BUS       34
++`define WIDTH_FS_TO_DS_BUS 64
++`define WIDTH_DS_TO_ES_BUS 229
++`define WIDTH_ES_TO_MS_BUS 175
++`define WIDTH_MS_TO_WS_BUS 167
++`define WIDTH_WS_TO_DS_BUS 55
++`define WIDTH_ES_TO_DS_BUS 55
++`define WIDTH_MS_TO_DS_BUS 54
++
++`define WIDTH_CSR_NUM 14
++
++//瀵勫瓨鍣ㄥ彿
++`define CSR_CRMD 14'h0
++`define CSR_PRMD 14'h1
++`define CSR_ECFG 14'h4
++`define CSR_ESTAT 14'h5
++`define CSR_ERA 14'h6
++`define CSR_BADV 14'h7
++`define CSR_EENTRY 14'hc
++`define CSR_SAVE0 14'h30
++`define CSR_SAVE1 14'h31
++`define CSR_SAVE2 14'h32
++`define CSR_SAVE3 14'h33
++`define CSR_TID 14'h40
++`define CSR_TCFG 14'h41
++`define CSR_TVAL 14'h42
++`define CSR_TICLR 14'h44
++
++
++//CSR鍒嗗尯
++
++//CSR_CRMD
++`define CSR_CRMD_PLV 1:0
++`define CSR_CRMD_IE 2:2
++`define CSR_CRMD_DA 3:3
++`define CSR_CRMD_PG 4:4
++`define CSR_CRMD_DATF 6:5
++`define CSR_CRMD_DATM 8:7
++`define CSR_CRMD_ZERO 31:9
++
++//CSR_PRMD
++`define CSR_PRMD_PPLV 1:0
++`define CSR_PRMD_PIE 2:2
++`define CSR_PRMD_ZERO 31:3
++
++//CSR_ECFG
++`define CSR_ECFG_LIE 12:0
++`define CSR_ECFG_ZERO 31:13
++
++//CSR_ESTAT
++`define CSR_ESTAT_IS_SOFT 1:0     
++`define CSR_ESTAT_IS_HARD 9:2   
++`define CSR_ESTAT_IS_LEFT1 10    
++`define CSR_ESTAT_IS_TI 11       
++`define CSR_ESTAT_IS_IPI 12       
++`define CSR_ESTAT_LEFT2 15:13  
++`define CSR_ESTAT_ECODE 21:16  
++`define CSR_ESTAT_ESUBCODE 30:22 
++`define CSR_ESTAT_ZERO 31  
++
++//CSR_ERA
++`define CSR_ERA_PC 31:0
++
++//CSR_BADV
++`define CSR_BADV_VADDR 31:0
++
++//CSR_EENTRY
++`define CSR_EENTRY_ZERO 5:0
++`define CSR_EENTRY_VA 31:6
++
++//CSR_SAVR0-3
++`define CSR_SAVE_DATA 31:0
++
++//CSR_TID
++`define CSR_TID_TID 31:0
++
++//CSR_TCFG
++`define CSR_TCFG_EN 0
++`define CSR_TCFG_PERIODIC 1
++`define CSR_TCFG_INITVAL 31:2
++
++//CSR_TICLR
++`define CSR_TICLR_CLR 0
++`define CSR_TICLR_ZERO 31:1
++
++
++//ECODE
++`define ECODE_INT 6'h0
++`define ECODE_PIL 6'h1
++`define ECODE_PIS 6'h2
++`define ECODE_PIF 6'h3
++`define ECODE_PME 6'h4
++`define ECODE_PPI 6'h7
++`define ECODE_ADE 6'h8
++`define ECODE_ALE 6'h9
++`define ECODE_SYS 6'hb
++`define ECODE_BRK 6'hc
++`define ECODE_INE 6'hd
++`define ECODE_IPE 6'he
++`define ECODE_FPD 6'hf
++`define ECODE_FPE 6'h12
++
++`define ECODE_TLBR 0x3f
++
++//ESUBCODE
++`define ESUBCODE_INT 9'h0
++`define ESUBCODE_PIL 9'h0
++`define ESUBCODE_PIS 9'h0
++`define ESUBCODE_PIF 9'h0
++`define ESUBCODE_PME 9'h0
++`define ESUBCODE_PPI 9'h0
++`define ESUBCODE_ADEF 9'h0
++`define ESUBCODE_ADEM 9'h1
++`define ESUBCODE_ALE 9'h0
++`define ESUBCODE_SYS 9'h0
++`define ESUBCODE_BRK 9'h0
++`define ESUBCODE_INE 9'h0
++`define ESUBCODE_IPE 9'h0
++`define ESUBCODE_FPD 9'h0
++`define ESUBCODE_FPE 9'h0
++
++`define ESUBCODE_TLBR 9'h0
+\ No newline at end of file
+-- 
+2.38.0.windows.1
+
