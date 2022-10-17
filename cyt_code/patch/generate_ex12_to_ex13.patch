@@ -1,0 +1,464 @@
+From eac1386c6e3a6144ce5be104189aa4ace1cbf550 Mon Sep 17 00:00:00 2001
+From: chenyuanteng20 <chenyuanteng20@mails.ucas.ac.cn>
+Date: Mon, 17 Oct 2022 11:11:01 +0800
+Subject: [PATCH] finish ex13
+
+---
+ cyt_code/ex13/EX.v        | 37 +++++++++++++++++++++++++------------
+ cyt_code/ex13/ID.v        | 10 ++++++++--
+ cyt_code/ex13/IF.v        |  5 ++---
+ cyt_code/ex13/MEM.v       | 23 ++++++++++++++---------
+ cyt_code/ex13/WB.v        | 14 ++++++++++----
+ cyt_code/ex13/mycpu_top.v | 18 +++++++++++++-----
+ cyt_code/ex13/width.vh    |  6 +++---
+ 7 files changed, 75 insertions(+), 38 deletions(-)
+
+diff --git a/cyt_code/ex13/EX.v b/cyt_code/ex13/EX.v
+index 430bf92..a877f96 100644
+--- a/cyt_code/ex13/EX.v
++++ b/cyt_code/ex13/EX.v
+@@ -4,7 +4,6 @@ module stage3_EX(
+     input clk,
+     input reset,
+     input ertn_flush,
+-    input has_int,
+     input wb_ex,
+ 
+     input ms_allow_in,
+@@ -59,6 +58,7 @@ assign ds_to_es_bus[230:230] = inst_rdcntvh_w;
+ assign ds_to_es_bus[231:231] = ds_ex_INE;
+ assign ds_to_es_bus[232:232] = ds_ex_ADEF;
+ assign ds_to_es_bus[233:233] = ds_ex_break;
++assign ds_to_es_bus[234:234] = ds_has_int;
+ */
+ wire [31:0] es_pc;
+ wire [31:0] es_rj_value;
+@@ -89,18 +89,19 @@ wire        es_rdcnt_high_or_low;   //1'b1 --> high ; 1'b0 --> low
+ wire        es_ex_INE;
+ wire        es_ex_ADEF;
+ wire        es_ex_break;
++wire        es_has_int;
+ 
+ reg [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus_reg;
+ always @(posedge clk)
+     begin
+         if(reset)
+             ds_to_es_bus_reg <= 0;
+-        else if(ertn_flush || has_int || wb_ex)
++        else if(ertn_flush || wb_ex)
+             ds_to_es_bus_reg <= 0;
+         else if(ds_to_es_valid && es_allow_in)
+             ds_to_es_bus_reg <= ds_to_es_bus;
+         else if(es_need_wait_div)        
+-            ds_to_es_bus_reg <= ds_to_es_bus_reg; 
++            ds_to_es_bus_reg <= ds_to_es_bus_reg;
+         else
+             ds_to_es_bus_reg <= 0;
+     end
+@@ -131,7 +132,7 @@ always @(posedge clk)
+             init <= 0;
+     end
+ 
+-assign {es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
++assign {es_has_int, es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
+         es_code, es_ex_syscall, es_csr, es_ertn_flush, es_csr_write, es_csr_wmask, es_csr_num,
+         es_st_op, es_ld_op, es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm,
+         es_src1_is_pc, es_alu_op, es_mem_we, es_gr_we, es_dest, es_imm,
+@@ -152,7 +153,7 @@ wire [1:0] es_unaligned_addr;
+ assign es_unaligned_addr = es_alu_result[1:0];
+ 
+ assign es_to_ms_bus[31:0] = es_pc;
+-assign es_to_ms_bus[32:32] = es_gr_we;
++assign es_to_ms_bus[32:32] = es_gr_we & ~es_ex_ALE;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
+ assign es_to_ms_bus[33:33] = es_res_from_mem;
+ assign es_to_ms_bus[38:34] = es_dest;
+ assign es_to_ms_bus[70:39] = es_calcu_result;
+@@ -168,6 +169,9 @@ assign es_to_ms_bus[126:126] = es_csr;
+ 
+ wire [31:0] es_csr_wvalue;
+ assign es_csr_wvalue = es_rkd_value;
++wire [31:0] es_vaddr;
++assign es_vaddr = es_alu_result;
++
+ assign es_to_ms_bus[158:127] = es_csr_wvalue;
+ assign es_to_ms_bus[159:159] = es_ex_syscall;
+ assign es_to_ms_bus[174:160] = es_code;
+@@ -175,6 +179,8 @@ assign es_to_ms_bus[175:175] = es_ex_INE;
+ assign es_to_ms_bus[176:176] = es_ex_ADEF;
+ assign es_to_ms_bus[177:177] = es_ex_ALE;
+ assign es_to_ms_bus[178:178] = es_ex_break;
++assign es_to_ms_bus[179:179] = es_has_int;
++assign es_to_ms_bus[211:180] = es_vaddr;
+ 
+ /*-------------------------------------------------------*/
+ 
+@@ -253,6 +259,7 @@ reg signed_dividend_tvalid_reg, unsigned_dividend_tvalid_reg;
+ reg signed_divisor_tvalid_reg, unsigned_divisor_tvalid_reg;
+ 
+ //div_signed dividend shake hand
++//assign signed_dividend_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && ~es_div_op[0]) : signed_dividend_tvalid_reg;
+ assign signed_dividend_tvalid = init ? (es_need_wait_div && ~es_div_op[0]) : signed_dividend_tvalid_reg;
+ always@(posedge clk)
+     begin
+@@ -265,6 +272,7 @@ always@(posedge clk)
+     end
+ 
+ //div_signed divisor shake hand
++//assign signed_divisor_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && ~es_div_op[0]) : signed_divisor_tvalid_reg;
+ assign signed_divisor_tvalid = init ? (es_need_wait_div && ~es_div_op[0]) : signed_divisor_tvalid_reg;
+ always@(posedge clk)
+     begin
+@@ -277,6 +285,7 @@ always@(posedge clk)
+     end
+ 
+ //div_unsigned dividend shake hand
++//assign unsigned_dividend_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && es_div_op[0]) : unsigned_dividend_tvalid_reg;
+ assign unsigned_dividend_tvalid = init ? (es_need_wait_div && es_div_op[0]) : unsigned_dividend_tvalid_reg;
+ always@(posedge clk)
+     begin
+@@ -289,6 +298,7 @@ always@(posedge clk)
+     end
+ 
+ //div_unsigned divisor shake hand
++//assign unsigned_divisor_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && es_div_op[0]) : unsigned_divisor_tvalid_reg;
+ assign unsigned_divisor_tvalid = init ? (es_need_wait_div && es_div_op[0]) : unsigned_divisor_tvalid_reg;
+ always@(posedge clk)
+     begin
+@@ -350,24 +360,27 @@ assign real_wdata = es_st_op[0] ? es_rkd_value :
+ //task13 add ALE error load or store address
+ 
+ wire es_ex_ALE;
+-//es_ex_ALE is for lw and sw, it is normal that other load and store inst's last 2 bits not zero
+-//ld_op[0] --> lw ; st_op[0] --> sw
++//es_ex_ALE is for lw,h,hu and sw,h, it is normal that  ld_b ld_bu and st_b inst's last 2 bits not zero
++//ld_op[0] --> lw ; st_op[0] --> sw ; ld_op[3] --> lh ; ld_op[4] --> lhu ; st_op[2] --> sh
+ wire if_lw_and_sw;
+ assign if_lw_and_sw = (es_res_from_mem && es_ld_op[0]) || (es_mem_we && es_st_op[0]);
++wire if_lh_and_sh;
++assign if_lh_and_sh = (es_res_from_mem && (es_ld_op[3] || es_ld_op[4])) || (es_mem_we && es_st_op[2]);
+ 
+-assign es_ex_ALE = if_lw_and_sw && es_valid && (es_unaligned_addr[1] | es_unaligned_addr[0]);
++assign es_ex_ALE = ((if_lw_and_sw && (es_unaligned_addr[1] | es_unaligned_addr[0]))
++                    || (if_lh_and_sh && es_unaligned_addr[0])) && es_valid ;
+ 
+ wire if_es_ex;
+-assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break;
++assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break || es_has_int;
+ 
+ /*
+-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break;
++assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
+ */
+ 
+ assign data_sram_en = ~es_ex_ALE;   //when ALE, stop read
+ 
+-// when es_ex or ex before es_inst or has_int, stop write 
+-assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~has_int) ? w_strb : 4'b0000;
++// when es_ex or ex before es_inst or es_has_int, stop write 
++assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int) ? w_strb : 4'b0000;
+ 
+ assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+ assign data_sram_wdata = real_wdata;        
+diff --git a/cyt_code/ex13/ID.v b/cyt_code/ex13/ID.v
+index 1ec15f0..dc46a1d 100644
+--- a/cyt_code/ex13/ID.v
++++ b/cyt_code/ex13/ID.v
+@@ -505,7 +505,7 @@ always @(posedge clk)
+     begin
+         if(reset)
+             fs_to_ds_bus_reg <= 0;
+-        else if(ertn_flush || has_int || wb_ex)
++        else if(ertn_flush || wb_ex)
+             fs_to_ds_bus_reg <= 0;
+         else if(fs_to_ds_valid && ds_allow_in)         
+             fs_to_ds_bus_reg <= fs_to_ds_bus;
+@@ -586,7 +586,9 @@ assign dst_is_r1     = inst_bl;
+ //task13 --> inst_rdcntid is specail --> write into reg rj
+ assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
+ assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
+-                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break;    //task12 add csr will write reg_file 
++                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break & ~ds_ex_INE & ~ds_ex_ADEF &
++                       ~ds_ex_syscall;    //task12 add csr will write reg_file 
++//debug record: when ds_ex_INE happen, means no inst, can't write reg_file, when ds_ex_ADEF, means error intn, can't write reg_file
+ 
+ assign mem_we        = inst_st_w | inst_st_b | inst_st_h;
+ 
+@@ -696,11 +698,15 @@ assign ds_to_es_bus[213:213] = ds_ex_syscall;
+ assign ds_to_es_bus[228:214] = ds_code;
+ 
+ //task13
++wire ds_has_int;
++assign ds_has_int = has_int;
++
+ assign ds_to_es_bus[229:229] = inst_rdcntvl_w || inst_rdcntvh_w; 
+ assign ds_to_es_bus[230:230] = inst_rdcntvh_w;
+ assign ds_to_es_bus[231:231] = ds_ex_INE;
+ assign ds_to_es_bus[232:232] = ds_ex_ADEF;
+ assign ds_to_es_bus[233:233] = ds_ex_break;
++assign ds_to_es_bus[234:234] = ds_has_int;
+ /*-------------------------------------------------------*/
+ 
+ /*--------------------------------valid---------------------------*/
+diff --git a/cyt_code/ex13/IF.v b/cyt_code/ex13/IF.v
+index 766e201..8cbb147 100644
+--- a/cyt_code/ex13/IF.v
++++ b/cyt_code/ex13/IF.v
+@@ -4,7 +4,6 @@ module stage1_IF(
+     input clk,
+     input reset,
+     input ertn_flush,
+-    input has_int,
+     input wb_ex,
+     input [31:0] ertn_pc,
+     input [31:0] ex_entry,
+@@ -66,7 +65,7 @@ reg [31:0] fetch_pc;
+ wire [31:0] seq_pc;     //顺序取址
+ assign seq_pc = fetch_pc + 4;
+ wire [31:0] next_pc;    //nextpc来自seq或br
+-assign next_pc = (has_int || wb_ex)? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
++assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
+    
+ always @(posedge clk)
+     begin
+@@ -102,7 +101,7 @@ assign fetch_inst = inst_sram_rdata;
+ //task13 add ADEF fetch_addr_exception
+ wire fs_ex_ADEF;
+ //fs_ex_ADEF happen when inst_sram_en and last 2 bits of inst_sram_addr are not 2'b00
+-assign fs_ex_ADEF = inst_sram_en && (fetch_pc[1] | fetch_pc[0]);  //last two bit != 0 <==> error address
++assign fs_ex_ADEF = inst_sram_en && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
+ 
+ assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
+ 
+diff --git a/cyt_code/ex13/MEM.v b/cyt_code/ex13/MEM.v
+index 678b134..1593ed8 100644
+--- a/cyt_code/ex13/MEM.v
++++ b/cyt_code/ex13/MEM.v
+@@ -4,7 +4,6 @@ module stage4_MEM(
+     input clk,
+     input reset,
+     input ertn_flush,
+-    input has_int,
+     input wb_ex,
+ 
+     input ws_allow_in,
+@@ -45,6 +44,8 @@ assign es_to_ms_bus[175:175] = es_ex_INE;
+ assign es_to_ms_bus[176:176] = es_ex_ADEF;
+ assign es_to_ms_bus[177:177] = es_ex_ALE;
+ assign es_to_ms_bus[178:178] = es_ex_break;
++assign es_to_ms_bus[179:179] = es_has_int;
++assign es_to_ms_bus[211:180] = es_vaddr;
+ */
+ 
+ wire [31:0] ms_pc;
+@@ -68,13 +69,15 @@ wire        ms_ex_INE;
+ wire        ms_ex_ADEF;
+ wire        ms_ex_ALE;
+ wire        ms_ex_break;
++wire        ms_has_int;
++wire [31:0] ms_vaddr;
+ 
+ reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
+ always @(posedge clk)
+     begin
+         if(reset)
+             es_to_ms_bus_reg <= 0;
+-        else if(ertn_flush || has_int || wb_ex)
++        else if(ertn_flush || wb_ex)
+             es_to_ms_bus_reg <= 0;
+         else if(es_to_ms_valid && ms_allow_in)
+             es_to_ms_bus_reg <= es_to_ms_bus;
+@@ -82,7 +85,7 @@ always @(posedge clk)
+             es_to_ms_bus_reg <= 0;
+     end 
+ 
+-assign {ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
++assign {ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
+         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
+         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
+         ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
+@@ -134,6 +137,8 @@ assign ms_to_ws_bus[167:167] = ms_ex_INE;
+ assign ms_to_ws_bus[168:168] = ms_ex_ADEF;
+ assign ms_to_ws_bus[169:169] = ms_ex_ALE;
+ assign ms_to_ws_bus[170:170] = ms_ex_break;
++assign ms_to_ws_bus[171:171] = ms_has_int;
++assign ms_to_ws_bus[203:172] = ms_vaddr;
+ /*-------------------------------------------------------*/
+ 
+ /*--------------------------valid------------------------*/
+@@ -143,18 +148,18 @@ wire ms_ready_go;
+ assign ms_ready_go = 1'b1;
+ assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
+ /*
+-add conditions & ~ertn_flush & ~wb_ex & ~has_int
+-because we can't use ertn_flush , wb_ex and has_int to clear ms_to_ws_bus_reg directly
++add conditions & ~ertn_flush & ~wb_ex
++because we can't use ertn_flush , wb_ex to clear ms_to_ws_bus_reg directly
+ like the way we clear ds_to_es, es_to_ms bus_reg
+ so we use another way to clear data from ms to ws
+-make ms_to_ws_valid signal down when ertn_flush or wb_ex or has_int
++make ms_to_ws_valid signal down when ertn_flush or wb_ex
+ this will not influence fs, ds, es, ms 's signal including valid or allow_in
+ so will not influence assembly line except for ws 
+ when ms_to_ws_valid down, ws will not receive bus_reg
+-and when ertn_flush / wb_ex / has_int disappear in next clk, 
++and when ertn_flush / wb_ex disappear in next clk, 
+ ms_to_ws_valid will raise again 
+ */
+-assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex & ~has_int;
++assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex;
+ 
+ always @(posedge clk)
+     begin
+@@ -175,7 +180,7 @@ assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result,
+ /*--------------------deliver if_ms_ex to es------------------*/
+ //this signal is for helping ex_stage to judge if it should cancel inst_store due to exception
+ // in task 12 we just consider syscall
+-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break;
++assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
+ 
+ /*-------------------------------------------------------*/
+ 
+diff --git a/cyt_code/ex13/WB.v b/cyt_code/ex13/WB.v
+index 0fb3e32..4489d07 100644
+--- a/cyt_code/ex13/WB.v
++++ b/cyt_code/ex13/WB.v
+@@ -30,7 +30,8 @@ module stage5_WB(
+     output                      wb_ex,
+     output [31:0]               wb_pc,
+     output [5:0]                wb_ecode,
+-    output [8:0]                wb_esubcode
++    output [8:0]                wb_esubcode,
++    output [31:0]               wb_vaddr
+ );
+ 
+ /*-----------------------receive ms_to_ws_bus----------------*/
+@@ -53,6 +54,8 @@ assign ms_to_ws_bus[167:167] = ms_ex_INE;
+ assign ms_to_ws_bus[168:168] = ms_ex_ADEF;
+ assign ms_to_ws_bus[169:169] = ms_ex_ALE;
+ assign ms_to_ws_bus[170:170] = ms_ex_break;
++assign ms_to_ws_bus[171:171] = ms_has_int;
++assign ms_to_ws_bus[203:172] = ms_vaddr;
+ */
+ 
+ wire [31:0] ws_pc;
+@@ -73,6 +76,8 @@ wire        ws_ex_INE;
+ wire        ws_ex_ADEF;
+ wire        ws_ex_ALE;
+ wire        ws_ex_break;
++wire        ws_has_int;
++wire [31:0] ws_vaddr;
+ 
+ reg [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus_reg;
+ always @(posedge clk)
+@@ -85,7 +90,7 @@ always @(posedge clk)
+             ms_to_ws_bus_reg <= 0;
+     end 
+ 
+-assign {ws_ex_break, ws_ex_ALE, ws_ex_ADEF, ws_ex_INE,
++assign {ws_vaddr, ws_has_int, ws_ex_break, ws_ex_ALE, ws_ex_ADEF, ws_ex_INE,
+         ws_code, ws_ex_syscall, ws_csr_wvalue, ws_csr, ws_ertn_flush, ws_csr_write, ws_csr_wmask, ws_csr_num,
+         ws_final_result, ws_dest,
+         ws_gr_we, ws_pc} = ms_to_ws_bus_reg;
+@@ -102,8 +107,9 @@ assign csr_wvalue = ws_csr_wvalue;
+ assign csr_wmask = ws_csr_wmask;
+ assign ertn_flush = ws_ertn_flush;
+ 
+-assign wb_ex = ws_ex_syscall || ws_ex_break || ws_ex_ADEF || ws_ex_ALE || ws_ex_INE;
++assign wb_ex = ws_ex_syscall || ws_ex_break || ws_ex_ADEF || ws_ex_ALE || ws_ex_INE || ws_has_int;
+ assign wb_pc = ws_pc;
++assign wb_vaddr = ws_vaddr;
+ 
+ /*
+  *deal with ecode and esubcode according to kind of ex
+@@ -111,7 +117,7 @@ assign wb_pc = ws_pc;
+  */
+ assign wb_ecode = ws_ex_syscall ? 6'hb : ws_ex_break ? 6'hc : 
+                 ws_ex_ADEF ? 6'h8 : ws_ex_ALE ? 6'h9 : 
+-                ws_ex_INE ? 6'h0 : 6'h0;
++                ws_ex_INE ? 6'hd : ws_has_int ? 6'h0 : 6'h0;
+ assign wb_esubcode = 9'h0;   //up to task13, add ex's esubcode are all 0x0
+ 
+ /*-------------------------------------------------------*/
+diff --git a/cyt_code/ex13/mycpu_top.v b/cyt_code/ex13/mycpu_top.v
+index b8295a2..2af5dfa 100644
+--- a/cyt_code/ex13/mycpu_top.v
++++ b/cyt_code/ex13/mycpu_top.v
+@@ -78,6 +78,16 @@ wire                      ipi_int_in = 1'b0;
+ //global timer counter (64bit)
+ reg [63:0] global_time_cnt;
+ 
++always @(posedge clk)
++    begin
++        if(reset)
++            global_time_cnt <= 0;
++        else if(global_time_cnt == 64'hffffffffffffffff)
++            global_time_cnt <= 0;
++        else
++            global_time_cnt <= global_time_cnt + 1'b1;
++    end
++
+ //task13
+ /*
+ 为CPU增加取指地址错(ADEF)、地址非对齐(ALE)、断点(BRK)和指令不存在(INE)异常的支持
+@@ -89,7 +99,6 @@ stage1_IF fetch(
+     .clk                (clk),
+     .reset              (reset),
+     .ertn_flush         (ertn_flush),
+-    .has_int            (has_int),
+     .ertn_pc            (ertn_pc),
+     .ex_entry           (ex_entry),
+     .wb_ex              (wb_ex),
+@@ -142,7 +151,6 @@ stage3_EX ex(
+     .clk                (clk),
+     .reset              (reset),
+     .ertn_flush         (ertn_flush),
+-    .has_int            (has_int),
+     .wb_ex              (wb_ex),
+ 
+     .ms_allow_in        (ms_allow_in),
+@@ -172,7 +180,6 @@ stage4_MEM mem(
+     .clk                (clk),
+     .reset              (reset),
+     .ertn_flush         (ertn_flush),
+-    .has_int            (has_int),
+     .wb_ex              (wb_ex),
+ 
+     .ws_allow_in        (ws_allow_in),
+@@ -184,7 +191,7 @@ stage4_MEM mem(
+     .es_to_ms_bus       (es_to_ms_bus),
+     .ms_to_ws_bus       (ms_to_ws_bus),
+     .ms_to_ds_bus       (ms_to_ds_bus),
+-    .if_ms_ex      (if_ms_ex),
++    .if_ms_ex           (if_ms_ex),
+ 
+     .data_sram_rdata    (data_sram_rdata)
+ );
+@@ -220,7 +227,8 @@ stage5_WB wb(
+     .wb_ex              (wb_ex),
+     .wb_pc              (wb_pc),
+     .wb_ecode           (wb_ecode),
+-    .wb_esubcode        (wb_esubcode)
++    .wb_esubcode        (wb_esubcode),
++    .wb_vaddr           (wb_vaddr)
+ );
+ 
+ /*----------------------------------------------------------*/
+diff --git a/cyt_code/ex13/width.vh b/cyt_code/ex13/width.vh
+index b60cdc6..79cdf01 100644
+--- a/cyt_code/ex13/width.vh
++++ b/cyt_code/ex13/width.vh
+@@ -1,8 +1,8 @@
+ `define WIDTH_BR_BUS       34
+ `define WIDTH_FS_TO_DS_BUS 65
+-`define WIDTH_DS_TO_ES_BUS 234
+-`define WIDTH_ES_TO_MS_BUS 179
+-`define WIDTH_MS_TO_WS_BUS 171
++`define WIDTH_DS_TO_ES_BUS 235
++`define WIDTH_ES_TO_MS_BUS 212
++`define WIDTH_MS_TO_WS_BUS 204
+ `define WIDTH_WS_TO_DS_BUS 55
+ `define WIDTH_ES_TO_DS_BUS 55
+ `define WIDTH_MS_TO_DS_BUS 54
+-- 
+2.38.0.windows.1
+
