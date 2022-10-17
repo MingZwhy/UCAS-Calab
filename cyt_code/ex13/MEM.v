@@ -4,7 +4,6 @@ module stage4_MEM(
     input clk,
     input reset,
     input ertn_flush,
-    input has_int,
     input wb_ex,
 
     input ws_allow_in,
@@ -45,6 +44,8 @@ assign es_to_ms_bus[175:175] = es_ex_INE;
 assign es_to_ms_bus[176:176] = es_ex_ADEF;
 assign es_to_ms_bus[177:177] = es_ex_ALE;
 assign es_to_ms_bus[178:178] = es_ex_break;
+assign es_to_ms_bus[179:179] = es_has_int;
+assign es_to_ms_bus[211:180] = es_vaddr;
 */
 
 wire [31:0] ms_pc;
@@ -68,13 +69,15 @@ wire        ms_ex_INE;
 wire        ms_ex_ADEF;
 wire        ms_ex_ALE;
 wire        ms_ex_break;
+wire        ms_has_int;
+wire [31:0] ms_vaddr;
 
 reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             es_to_ms_bus_reg <= 0;
-        else if(ertn_flush || has_int || wb_ex)
+        else if(ertn_flush || wb_ex)
             es_to_ms_bus_reg <= 0;
         else if(es_to_ms_valid && ms_allow_in)
             es_to_ms_bus_reg <= es_to_ms_bus;
@@ -82,7 +85,7 @@ always @(posedge clk)
             es_to_ms_bus_reg <= 0;
     end 
 
-assign {ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
+assign {ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
         ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
@@ -134,6 +137,8 @@ assign ms_to_ws_bus[167:167] = ms_ex_INE;
 assign ms_to_ws_bus[168:168] = ms_ex_ADEF;
 assign ms_to_ws_bus[169:169] = ms_ex_ALE;
 assign ms_to_ws_bus[170:170] = ms_ex_break;
+assign ms_to_ws_bus[171:171] = ms_has_int;
+assign ms_to_ws_bus[203:172] = ms_vaddr;
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
@@ -143,18 +148,18 @@ wire ms_ready_go;
 assign ms_ready_go = 1'b1;
 assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
 /*
-add conditions & ~ertn_flush & ~wb_ex & ~has_int
-because we can't use ertn_flush , wb_ex and has_int to clear ms_to_ws_bus_reg directly
+add conditions & ~ertn_flush & ~wb_ex
+because we can't use ertn_flush , wb_ex to clear ms_to_ws_bus_reg directly
 like the way we clear ds_to_es, es_to_ms bus_reg
 so we use another way to clear data from ms to ws
-make ms_to_ws_valid signal down when ertn_flush or wb_ex or has_int
+make ms_to_ws_valid signal down when ertn_flush or wb_ex
 this will not influence fs, ds, es, ms 's signal including valid or allow_in
 so will not influence assembly line except for ws 
 when ms_to_ws_valid down, ws will not receive bus_reg
-and when ertn_flush / wb_ex / has_int disappear in next clk, 
+and when ertn_flush / wb_ex disappear in next clk, 
 ms_to_ws_valid will raise again 
 */
-assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex & ~has_int;
+assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex;
 
 always @(posedge clk)
     begin
@@ -175,7 +180,7 @@ assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result,
 /*--------------------deliver if_ms_ex to es------------------*/
 //this signal is for helping ex_stage to judge if it should cancel inst_store due to exception
 // in task 12 we just consider syscall
-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break;
+assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
 
 /*-------------------------------------------------------*/
 

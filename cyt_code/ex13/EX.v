@@ -4,7 +4,6 @@ module stage3_EX(
     input clk,
     input reset,
     input ertn_flush,
-    input has_int,
     input wb_ex,
 
     input ms_allow_in,
@@ -59,6 +58,7 @@ assign ds_to_es_bus[230:230] = inst_rdcntvh_w;
 assign ds_to_es_bus[231:231] = ds_ex_INE;
 assign ds_to_es_bus[232:232] = ds_ex_ADEF;
 assign ds_to_es_bus[233:233] = ds_ex_break;
+assign ds_to_es_bus[234:234] = ds_has_int;
 */
 wire [31:0] es_pc;
 wire [31:0] es_rj_value;
@@ -89,18 +89,19 @@ wire        es_rdcnt_high_or_low;   //1'b1 --> high ; 1'b0 --> low
 wire        es_ex_INE;
 wire        es_ex_ADEF;
 wire        es_ex_break;
+wire        es_has_int;
 
 reg [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             ds_to_es_bus_reg <= 0;
-        else if(ertn_flush || has_int || wb_ex)
+        else if(ertn_flush || wb_ex)
             ds_to_es_bus_reg <= 0;
         else if(ds_to_es_valid && es_allow_in)
             ds_to_es_bus_reg <= ds_to_es_bus;
         else if(es_need_wait_div)        
-            ds_to_es_bus_reg <= ds_to_es_bus_reg; 
+            ds_to_es_bus_reg <= ds_to_es_bus_reg;
         else
             ds_to_es_bus_reg <= 0;
     end
@@ -131,7 +132,7 @@ always @(posedge clk)
             init <= 0;
     end
 
-assign {es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
+assign {es_has_int, es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
         es_code, es_ex_syscall, es_csr, es_ertn_flush, es_csr_write, es_csr_wmask, es_csr_num,
         es_st_op, es_ld_op, es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm,
         es_src1_is_pc, es_alu_op, es_mem_we, es_gr_we, es_dest, es_imm,
@@ -152,7 +153,7 @@ wire [1:0] es_unaligned_addr;
 assign es_unaligned_addr = es_alu_result[1:0];
 
 assign es_to_ms_bus[31:0] = es_pc;
-assign es_to_ms_bus[32:32] = es_gr_we;
+assign es_to_ms_bus[32:32] = es_gr_we & ~es_ex_ALE;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
 assign es_to_ms_bus[33:33] = es_res_from_mem;
 assign es_to_ms_bus[38:34] = es_dest;
 assign es_to_ms_bus[70:39] = es_calcu_result;
@@ -168,6 +169,9 @@ assign es_to_ms_bus[126:126] = es_csr;
 
 wire [31:0] es_csr_wvalue;
 assign es_csr_wvalue = es_rkd_value;
+wire [31:0] es_vaddr;
+assign es_vaddr = es_alu_result;
+
 assign es_to_ms_bus[158:127] = es_csr_wvalue;
 assign es_to_ms_bus[159:159] = es_ex_syscall;
 assign es_to_ms_bus[174:160] = es_code;
@@ -175,6 +179,8 @@ assign es_to_ms_bus[175:175] = es_ex_INE;
 assign es_to_ms_bus[176:176] = es_ex_ADEF;
 assign es_to_ms_bus[177:177] = es_ex_ALE;
 assign es_to_ms_bus[178:178] = es_ex_break;
+assign es_to_ms_bus[179:179] = es_has_int;
+assign es_to_ms_bus[211:180] = es_vaddr;
 
 /*-------------------------------------------------------*/
 
@@ -253,6 +259,7 @@ reg signed_dividend_tvalid_reg, unsigned_dividend_tvalid_reg;
 reg signed_divisor_tvalid_reg, unsigned_divisor_tvalid_reg;
 
 //div_signed dividend shake hand
+//assign signed_dividend_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && ~es_div_op[0]) : signed_dividend_tvalid_reg;
 assign signed_dividend_tvalid = init ? (es_need_wait_div && ~es_div_op[0]) : signed_dividend_tvalid_reg;
 always@(posedge clk)
     begin
@@ -265,6 +272,7 @@ always@(posedge clk)
     end
 
 //div_signed divisor shake hand
+//assign signed_divisor_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && ~es_div_op[0]) : signed_divisor_tvalid_reg;
 assign signed_divisor_tvalid = init ? (es_need_wait_div && ~es_div_op[0]) : signed_divisor_tvalid_reg;
 always@(posedge clk)
     begin
@@ -277,6 +285,7 @@ always@(posedge clk)
     end
 
 //div_unsigned dividend shake hand
+//assign unsigned_dividend_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && es_div_op[0]) : unsigned_dividend_tvalid_reg;
 assign unsigned_dividend_tvalid = init ? (es_need_wait_div && es_div_op[0]) : unsigned_dividend_tvalid_reg;
 always@(posedge clk)
     begin
@@ -289,6 +298,7 @@ always@(posedge clk)
     end
 
 //div_unsigned divisor shake hand
+//assign unsigned_divisor_tvalid = if_ms_ex ? 1'b0 : init ? (es_need_wait_div && es_div_op[0]) : unsigned_divisor_tvalid_reg;
 assign unsigned_divisor_tvalid = init ? (es_need_wait_div && es_div_op[0]) : unsigned_divisor_tvalid_reg;
 always@(posedge clk)
     begin
@@ -350,24 +360,27 @@ assign real_wdata = es_st_op[0] ? es_rkd_value :
 //task13 add ALE error load or store address
 
 wire es_ex_ALE;
-//es_ex_ALE is for lw and sw, it is normal that other load and store inst's last 2 bits not zero
-//ld_op[0] --> lw ; st_op[0] --> sw
+//es_ex_ALE is for lw,h,hu and sw,h, it is normal that  ld_b ld_bu and st_b inst's last 2 bits not zero
+//ld_op[0] --> lw ; st_op[0] --> sw ; ld_op[3] --> lh ; ld_op[4] --> lhu ; st_op[2] --> sh
 wire if_lw_and_sw;
 assign if_lw_and_sw = (es_res_from_mem && es_ld_op[0]) || (es_mem_we && es_st_op[0]);
+wire if_lh_and_sh;
+assign if_lh_and_sh = (es_res_from_mem && (es_ld_op[3] || es_ld_op[4])) || (es_mem_we && es_st_op[2]);
 
-assign es_ex_ALE = if_lw_and_sw && es_valid && (es_unaligned_addr[1] | es_unaligned_addr[0]);
+assign es_ex_ALE = ((if_lw_and_sw && (es_unaligned_addr[1] | es_unaligned_addr[0]))
+                    || (if_lh_and_sh && es_unaligned_addr[0])) && es_valid ;
 
 wire if_es_ex;
-assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break;
+assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break || es_has_int;
 
 /*
-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break;
+assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
 */
 
 assign data_sram_en = ~es_ex_ALE;   //when ALE, stop read
 
-// when es_ex or ex before es_inst or has_int, stop write 
-assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~has_int) ? w_strb : 4'b0000;
+// when es_ex or ex before es_inst or es_has_int, stop write 
+assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int) ? w_strb : 4'b0000;
 
 assign data_sram_addr  = {es_alu_result[31:2],2'b00};
 assign data_sram_wdata = real_wdata;        

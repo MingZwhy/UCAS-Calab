@@ -505,7 +505,7 @@ always @(posedge clk)
     begin
         if(reset)
             fs_to_ds_bus_reg <= 0;
-        else if(ertn_flush || has_int || wb_ex)
+        else if(ertn_flush || wb_ex)
             fs_to_ds_bus_reg <= 0;
         else if(fs_to_ds_valid && ds_allow_in)         
             fs_to_ds_bus_reg <= fs_to_ds_bus;
@@ -586,7 +586,9 @@ assign dst_is_r1     = inst_bl;
 //task13 --> inst_rdcntid is specail --> write into reg rj
 assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
 assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
-                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break;    //task12 add csr will write reg_file 
+                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break & ~ds_ex_INE & ~ds_ex_ADEF &
+                       ~ds_ex_syscall;    //task12 add csr will write reg_file 
+//debug record: when ds_ex_INE happen, means no inst, can't write reg_file, when ds_ex_ADEF, means error intn, can't write reg_file
 
 assign mem_we        = inst_st_w | inst_st_b | inst_st_h;
 
@@ -696,11 +698,15 @@ assign ds_to_es_bus[213:213] = ds_ex_syscall;
 assign ds_to_es_bus[228:214] = ds_code;
 
 //task13
+wire ds_has_int;
+assign ds_has_int = has_int;
+
 assign ds_to_es_bus[229:229] = inst_rdcntvl_w || inst_rdcntvh_w; 
 assign ds_to_es_bus[230:230] = inst_rdcntvh_w;
 assign ds_to_es_bus[231:231] = ds_ex_INE;
 assign ds_to_es_bus[232:232] = ds_ex_ADEF;
 assign ds_to_es_bus[233:233] = ds_ex_break;
+assign ds_to_es_bus[234:234] = ds_has_int;
 /*-------------------------------------------------------*/
 
 /*--------------------------------valid---------------------------*/

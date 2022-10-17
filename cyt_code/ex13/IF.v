@@ -4,7 +4,6 @@ module stage1_IF(
     input clk,
     input reset,
     input ertn_flush,
-    input has_int,
     input wb_ex,
     input [31:0] ertn_pc,
     input [31:0] ex_entry,
@@ -66,7 +65,7 @@ reg [31:0] fetch_pc;
 wire [31:0] seq_pc;     //顺序取址
 assign seq_pc = fetch_pc + 4;
 wire [31:0] next_pc;    //nextpc来自seq或br
-assign next_pc = (has_int || wb_ex)? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
+assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
    
 always @(posedge clk)
     begin
@@ -102,7 +101,7 @@ assign fetch_inst = inst_sram_rdata;
 //task13 add ADEF fetch_addr_exception
 wire fs_ex_ADEF;
 //fs_ex_ADEF happen when inst_sram_en and last 2 bits of inst_sram_addr are not 2'b00
-assign fs_ex_ADEF = inst_sram_en && (fetch_pc[1] | fetch_pc[0]);  //last two bit != 0 <==> error address
+assign fs_ex_ADEF = inst_sram_en && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
 
 assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
 

@@ -78,6 +78,16 @@ wire                      ipi_int_in = 1'b0;
 //global timer counter (64bit)
 reg [63:0] global_time_cnt;
 
+always @(posedge clk)
+    begin
+        if(reset)
+            global_time_cnt <= 0;
+        else if(global_time_cnt == 64'hffffffffffffffff)
+            global_time_cnt <= 0;
+        else
+            global_time_cnt <= global_time_cnt + 1'b1;
+    end
+
 //task13
 /*
 为CPU增加取指地址错(ADEF)、地址非对齐(ALE)、断点(BRK)和指令不存在(INE)异常的支持
@@ -89,7 +99,6 @@ stage1_IF fetch(
     .clk                (clk),
     .reset              (reset),
     .ertn_flush         (ertn_flush),
-    .has_int            (has_int),
     .ertn_pc            (ertn_pc),
     .ex_entry           (ex_entry),
     .wb_ex              (wb_ex),
@@ -142,7 +151,6 @@ stage3_EX ex(
     .clk                (clk),
     .reset              (reset),
     .ertn_flush         (ertn_flush),
-    .has_int            (has_int),
     .wb_ex              (wb_ex),
 
     .ms_allow_in        (ms_allow_in),
@@ -172,7 +180,6 @@ stage4_MEM mem(
     .clk                (clk),
     .reset              (reset),
     .ertn_flush         (ertn_flush),
-    .has_int            (has_int),
     .wb_ex              (wb_ex),
 
     .ws_allow_in        (ws_allow_in),
@@ -184,7 +191,7 @@ stage4_MEM mem(
     .es_to_ms_bus       (es_to_ms_bus),
     .ms_to_ws_bus       (ms_to_ws_bus),
     .ms_to_ds_bus       (ms_to_ds_bus),
-    .if_ms_ex      (if_ms_ex),
+    .if_ms_ex           (if_ms_ex),
 
     .data_sram_rdata    (data_sram_rdata)
 );
@@ -220,7 +227,8 @@ stage5_WB wb(
     .wb_ex              (wb_ex),
     .wb_pc              (wb_pc),
     .wb_ecode           (wb_ecode),
-    .wb_esubcode        (wb_esubcode)
+    .wb_esubcode        (wb_esubcode),
+    .wb_vaddr           (wb_vaddr)
 );
 
 /*----------------------------------------------------------*/
