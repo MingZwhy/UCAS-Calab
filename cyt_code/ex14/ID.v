@@ -570,7 +570,7 @@ assign br_stall = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt 
                              || inst_bge || inst_bltu || inst_bgeu) ? (ds_pc + br_offs) :   
                                                    /*inst_jirl*/ (rj_value + jirl_offs); 
-assign br_bus = {br_stall,br_taken,br_target};           
+assign br_bus = {br_taken_cancel, br_stall, br_taken, br_target};           
 /*-------------------------------------------------------*/
 
 /*-----------------------deliver ds_to_es_bus----------------*/

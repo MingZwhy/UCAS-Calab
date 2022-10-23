@@ -29,7 +29,21 @@ module stage1_IF(
     
 // pre_if伪流水级的工作室发出取指请求
 // 当IF级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
-assign inst_sram_req = br_stall ? 1'b0 : fs_allow_in;
+//assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in;
+assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in ? inst_sram_req_reg : 1'b0;
+
+reg inst_sram_req_reg;
+always @(posedge clk)
+    begin
+        if(reset)
+            inst_sram_req_reg <= 1'b1;
+        else if(inst_sram_addr_ok)
+            //握手成功，在握手成功的下一个时钟上沿拉低req
+            inst_sram_req_reg <= 1'b0;
+        else
+            //握手之后到下一次握手成功之间,拉高reg
+            inst_sram_req_reg <= 1'b1;
+    end
 
 // 当req与addr_ok握手成功时，代表请求发送成功，拉高ready_go
 wire pre_if_ready_go;
@@ -59,6 +73,8 @@ always @(posedge clk)
                 else
                     fs_valid <= pre_if_to_fs_valid;
             end
+        else if(br_taken_cancel)
+            fs_valid <= 1'b0;
     end
 
 wire fs_allow_in;
@@ -119,9 +135,10 @@ always @(posedge clk)
 
 wire [31:0] br_target;  //跳转地址
 wire br_taken;          //是否跳转
-wire br_stall;
+wire br_stall;          
+wire br_taken_cancel; 
 //br_taken和br_target来自br_bus
-assign {br_stall,br_taken,br_target} = br_bus;
+assign {br_taken_cancel, br_stall, br_taken, br_target} = br_bus;
 
 reg [31:0] fetch_pc; 
 
