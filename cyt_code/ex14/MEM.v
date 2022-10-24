@@ -83,8 +83,6 @@ always @(posedge clk)
             es_to_ms_bus_reg <= 0;
         else if(es_to_ms_valid && ms_allow_in)
             es_to_ms_bus_reg <= es_to_ms_bus;
-        else
-            es_to_ms_bus_reg <= 0;
     end 
 
 assign {ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,

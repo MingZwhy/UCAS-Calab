@@ -107,8 +107,6 @@ always @(posedge clk)
             ds_to_es_bus_reg <= ds_to_es_bus;
         else if(es_need_wait_div)        
             ds_to_es_bus_reg <= ds_to_es_bus_reg;
-        else
-            ds_to_es_bus_reg <= 0;
     end
 
 
@@ -328,7 +326,7 @@ assign no_exception = ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int;
 
 // 当MS级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
 // 当es流水级或ms,ws有异常时阻止访存，为了维护精确异常。
-assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_mem_we);
+assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_mem_we) && es_valid;
 reg es_valid;   
 
 wire es_ready_go;
@@ -423,7 +421,8 @@ assign data_sram_wstrb = es_st_op[0] ? 4'b1111 :
                                 es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
                          es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
 
-assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+//assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+assign data_sram_addr  = es_alu_result;
 assign data_sram_wdata = real_wdata;        
 /*--------------------------------------------------------*/
 
@@ -431,7 +430,7 @@ assign data_sram_wdata = real_wdata;
 wire IF_LOAD;   //if inst is load --> which means forward needs block for one clk
 assign IF_LOAD = es_res_from_mem;
 //task12 add es_csr_write, es_csr_num
-assign es_to_ds_bus = {es_gr_we,es_dest,IF_LOAD,es_calcu_result,
+assign es_to_ds_bus = {es_valid,es_gr_we,es_dest,IF_LOAD,es_calcu_result,
                        es_csr_write, es_csr_num, es_csr};
 
 /*-------------------------------------------------------*/

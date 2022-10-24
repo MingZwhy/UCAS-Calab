@@ -536,6 +536,7 @@ wire [13:0] ws_csr_num;
 wire ws_csr;
 assign {ws_csr, ws_csr_num, ws_ertn_flush, ws_csr_write, rf_we, rf_waddr,rf_wdata} = ws_to_ds_bus;
 
+wire es_valid;
 wire es_we;
 wire [4:0] es_dest;
 wire IF_LOAD;
@@ -551,7 +552,7 @@ wire ms_csr_write;
 wire [13:0] ms_csr_num;
 wire ms_csr;
 
-assign {es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
+assign {es_valid, es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
 assign {ms_we, ms_dest, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
 /*-------------------------------------------------------*/
 
@@ -565,7 +566,7 @@ wire br_taken_cancel;
 wire br_stall;
 //当译码级是跳转指令，且与前面的load指令有数据冲突时，需要拉高br_stall令取指暂时阻塞
 assign br_stall = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt
-                || inst_bge || inst_bgeu || inst_bltu) && (wb_crush1 || wb_crush2) && ~data_sram_data_ok;
+                || inst_bge || inst_bgeu || inst_bltu) && (es_valid && IF_LOAD && (mem_crush1 || mem_crush2));
 
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt 
                              || inst_bge || inst_bltu || inst_bgeu) ? (ds_pc + br_offs) :   
@@ -745,11 +746,12 @@ or return from exception, this out_of_exception block will make next_pc (key) lo
 so we must avoid this situation happen!
 */
 assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
+//assign Need_Block = csr_crush && ~ertn_flush && ~wb_ex && ~has_int;
 
 wire ex_crush1;
 wire ex_crush2;
-assign ex_crush1 = (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
-assign ex_crush2 = (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
+assign ex_crush1 = es_valid && (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
+assign ex_crush2 = es_valid && (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
 
 wire mem_crush1;
 wire mem_crush2;
