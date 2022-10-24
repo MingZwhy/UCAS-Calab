@@ -147,7 +147,7 @@ reg ms_valid;
 wire ms_ready_go;
 //当是load指令时，需要等待数据握手
 //data_ok拉高时表示store已经写入数据 或 load已经取到数据，将ms_ready_go拉高
-assign ms_ready_go = (ms_mem_we || ms_res_from_mem) ? data_sram_data_ok : 1'b1;
+assign ms_ready_go = if_ms_ex ? 1'b1 : (ms_mem_we || ms_res_from_mem) ? data_sram_data_ok : 1'b1;
 assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
 /*
 add conditions & ~ertn_flush & ~wb_ex
@@ -175,7 +175,10 @@ always @(posedge clk)
 
 /*--------------------deliver ms_to_ds_bus-------------------*/
 //task12 add ms_csr_write, ms_csr_num
-assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result,
+
+wire if_ms_load;
+assign if_ms_load = ms_res_from_mem;
+assign ms_to_ds_bus = {ms_to_ws_valid,ms_valid,ms_gr_we,ms_dest,if_ms_load,ms_final_result,
                        ms_csr_write, ms_csr_num, ms_csr};
 /*-------------------------------------------------------*/
 

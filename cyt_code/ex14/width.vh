@@ -5,7 +5,7 @@
 `define WIDTH_MS_TO_WS_BUS 204
 `define WIDTH_WS_TO_DS_BUS 55
 `define WIDTH_ES_TO_DS_BUS 56
-`define WIDTH_MS_TO_DS_BUS 54
+`define WIDTH_MS_TO_DS_BUS 57
 
 `define WIDTH_CSR_NUM 14
 

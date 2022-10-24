@@ -56,6 +56,7 @@ wire fs_ready_go;
 // 当temp_inst有效时说明fs_ready_go已经拉高，而ds_allow_in没拉高
 // 因此此时在等ds_allow_in，需要保持temp_inst拉高
 // 同时当deal_with_cancel拉高时，表明需要丢弃下一个收到的错误指令，即将fs_ready_go拉低
+//assign fs_ready_go = deal_with_cancel ? (inst_sram_data_ok ? 1'b1: 1'b0) : ((temp_inst != 0) || inst_sram_data_ok);
 assign fs_ready_go = deal_with_cancel ? 1'b0 : ((temp_inst != 0) || inst_sram_data_ok);
 
 reg fs_valid;
@@ -78,7 +79,7 @@ always @(posedge clk)
     end
 
 wire fs_allow_in;
-assign fs_allow_in = !fs_valid || fs_ready_go && ds_allow_in;
+assign fs_allow_in = !fs_valid || (fs_ready_go && ds_allow_in) || (deal_with_cancel && inst_sram_data_ok);
 assign fs_to_ds_valid = fs_valid && fs_ready_go;
 
 //当fs_ready_go = 1 而 ds_allow_in = 0 时
@@ -120,10 +121,10 @@ always @(posedge clk)
         if(reset)
             deal_with_cancel <= 1'b0;
         else if((wb_ex || ertn_flush) && pre_if_to_fs_valid)
-            //对应1.2情况——pre-if发送的地址正好被接收
+            //pre_if_to_fs_valid 对应1.2情况——pre-if发送的地址正好被接收
             deal_with_cancel <= 1'b1;
-        else if((wb_ex || ertn_flush) && !fs_ready_go)
-            //对应2.2.2情况——IF级正在等待data_ok
+        else if(~fs_allow_in && (wb_ex || ertn_flush) && ~fs_ready_go)
+            //~fs_allow_in 且 ~fs_ready_go 对应2.2.2情况——IF级正在等待data_ok
             deal_with_cancel <= 1'b1;
         else if(inst_sram_data_ok)
             deal_with_cancel <= 1'b0;
@@ -145,7 +146,7 @@ reg [31:0] fetch_pc;
 wire [31:0] seq_pc;     //顺序取址
 assign seq_pc = (fetch_pc + 4);
 wire [31:0] next_pc;    //nextpc来自seq或br
-assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken ? br_target : if_keep_pc ? br_target_reg : seq_pc;
+assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ex_entry : ertn_flush? ertn_pc : (br_taken && ~br_stall) ? br_target : seq_pc;
 
 /*
 当出现异常入口pc、异常返回pc和跳转pc时，信号和pc可能只能维持一拍，
@@ -153,23 +154,27 @@ assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken ? br_target : 
 */
 
 reg if_keep_pc;
-reg [31:0] br_target_reg;
+reg [31:0] br_delay_reg;
 always @(posedge clk)
     begin
         if(reset)
             if_keep_pc <= 1'b0;
-        else if(inst_sram_addr_ok)
+        else if(inst_sram_addr_ok && ~deal_with_cancel && ~wb_ex && ~ertn_flush)
             if_keep_pc <= 1'b0;
-        else if(br_taken)
+        else if((br_taken && ~br_stall) || wb_ex || ertn_flush)
             if_keep_pc <= 1'b1;
     end
 
 always @(posedge clk)
     begin
         if(reset)
-            br_target_reg <= 32'b0;
-        else if(br_taken)
-            br_target_reg <= br_target;
+            br_delay_reg <= 32'b0;
+        else if(wb_ex)
+            br_delay_reg <= ex_entry;
+        else if(ertn_flush)
+            br_delay_reg <= ertn_pc;
+        else if(br_taken && ~br_stall)
+            br_delay_reg <= br_target;
     end
 
    

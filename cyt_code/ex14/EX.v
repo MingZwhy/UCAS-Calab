@@ -332,7 +332,7 @@ reg es_valid;
 wire es_ready_go;
 //对es_ready_go,如果是访存指令，则需要等待与addr_ok握手后再拉高
 //若非访存指令，如果是除法指令则一个clk算不出结果，需要等待结果有效
-assign es_ready_go = (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
+assign es_ready_go = if_es_ex ? 1'b1 : (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
                      (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
 assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
 assign es_to_ms_valid = es_valid && es_ready_go;
@@ -427,10 +427,10 @@ assign data_sram_wdata = real_wdata;
 /*--------------------------------------------------------*/
 
 /*-----------------------deliver es_to_ds_bus----------------*/
-wire IF_LOAD;   //if inst is load --> which means forward needs block for one clk
-assign IF_LOAD = es_res_from_mem;
+wire if_es_load;   //if inst is load --> which means forward needs block for one clk
+assign if_es_load = es_res_from_mem;
 //task12 add es_csr_write, es_csr_num
-assign es_to_ds_bus = {es_valid,es_gr_we,es_dest,IF_LOAD,es_calcu_result,
+assign es_to_ds_bus = {es_valid,es_gr_we,es_dest,if_es_load,es_calcu_result,
                        es_csr_write, es_csr_num, es_csr};
 
 /*-------------------------------------------------------*/
