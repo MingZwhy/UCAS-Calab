@@ -32,7 +32,6 @@ assign es_to_ms_bus[72:71] = es_unaligned_addr;
 assign es_to_ms_bus[77:73] = es_ld_op;
 
 //task12
-//task12
 assign es_to_ms_bus[91:78] = es_csr_rvalue;
 assign es_to_ms_bus[123:92] = es_csr_wmask;
 assign es_to_ms_bus[124:124] = es_csr_write;
@@ -47,6 +46,7 @@ assign es_to_ms_bus[177:177] = es_ex_ALE;
 assign es_to_ms_bus[178:178] = es_ex_break;
 assign es_to_ms_bus[179:179] = es_has_int;
 assign es_to_ms_bus[211:180] = es_vaddr;
+assign es_to_ms_bus[212:212] = es_mem_we;
 */
 
 wire [31:0] ms_pc;
@@ -72,6 +72,7 @@ wire        ms_ex_ALE;
 wire        ms_ex_break;
 wire        ms_has_int;
 wire [31:0] ms_vaddr;
+wire        ms_mem_we;
 
 reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
 always @(posedge clk)
@@ -86,7 +87,7 @@ always @(posedge clk)
             es_to_ms_bus_reg <= 0;
     end 
 
-assign {ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
+assign {ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
         ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
@@ -146,8 +147,9 @@ assign ms_to_ws_bus[203:172] = ms_vaddr;
 reg ms_valid;    
 
 wire ms_ready_go;
-//data_ok拉高时表示load已经取到数据，将ms_ready_go拉高
-assign ms_ready_go = data_sram_data_ok;
+//当是load指令时，需要等待数据握手
+//data_ok拉高时表示store已经写入数据 或 load已经取到数据，将ms_ready_go拉高
+assign ms_ready_go = (ms_mem_we || ms_res_from_mem) ? data_sram_data_ok : 1'b1;
 assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
 /*
 add conditions & ~ertn_flush & ~wb_ex

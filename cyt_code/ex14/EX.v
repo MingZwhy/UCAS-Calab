@@ -187,6 +187,11 @@ assign es_to_ms_bus[178:178] = es_ex_break;
 assign es_to_ms_bus[179:179] = es_has_int;
 assign es_to_ms_bus[211:180] = es_vaddr;
 
+//task14
+//when st, we need raise ms_ready_go when data_ok
+//so we need to tell ms that it's a st inst
+assign es_to_ms_bus[212:212] = es_mem_we;
+
 /*-------------------------------------------------------*/
 
 /*-------------------------link alu---------------------*/
@@ -327,9 +332,9 @@ assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_m
 reg es_valid;   
 
 wire es_ready_go;
-//es_ready_go拉高的条件首先是得req与addr_ok握手
-//其次是如果是除法指令则一个clk算不出结果，需要等待结果有效
-assign es_ready_go = (data_sram_req && data_sram_addr_ok) && 
+//对es_ready_go,如果是访存指令，则需要等待与addr_ok握手后再拉高
+//若非访存指令，如果是除法指令则一个clk算不出结果，需要等待结果有效
+assign es_ready_go = (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
                      (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
 assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
 assign es_to_ms_valid = es_valid && es_ready_go;

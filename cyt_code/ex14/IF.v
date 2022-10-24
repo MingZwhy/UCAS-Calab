@@ -37,11 +37,11 @@ always @(posedge clk)
     begin
         if(reset)
             inst_sram_req_reg <= 1'b1;
-        else if(inst_sram_addr_ok)
+        else if(inst_sram_req && inst_sram_addr_ok)
             //握手成功，在握手成功的下一个时钟上沿拉低req
             inst_sram_req_reg <= 1'b0;
-        else
-            //握手之后到下一次握手成功之间,拉高reg
+        else if(inst_sram_data_ok)
+            //在握手接收到数据(data_ok)时，重新拉高req
             inst_sram_req_reg <= 1'b1;
     end
 
@@ -143,9 +143,35 @@ assign {br_taken_cancel, br_stall, br_taken, br_target} = br_bus;
 reg [31:0] fetch_pc; 
 
 wire [31:0] seq_pc;     //顺序取址
-assign seq_pc = fetch_pc + 4;
+assign seq_pc = (fetch_pc + 4);
 wire [31:0] next_pc;    //nextpc来自seq或br
-assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
+assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken ? br_target : if_keep_pc ? br_target_reg : seq_pc;
+
+/*
+当出现异常入口pc、异常返回pc和跳转pc时，信号和pc可能只能维持一拍，
+但在req收到addr_ok前需要维持取址地址不变
+*/
+
+reg if_keep_pc;
+reg [31:0] br_target_reg;
+always @(posedge clk)
+    begin
+        if(reset)
+            if_keep_pc <= 1'b0;
+        else if(inst_sram_addr_ok)
+            if_keep_pc <= 1'b0;
+        else if(br_taken)
+            if_keep_pc <= 1'b1;
+    end
+
+always @(posedge clk)
+    begin
+        if(reset)
+            br_target_reg <= 32'b0;
+        else if(br_taken)
+            br_target_reg <= br_target;
+    end
+
    
 always @(posedge clk)
     begin
