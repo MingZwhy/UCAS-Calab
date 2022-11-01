@@ -11,16 +11,26 @@ module mycpu_top(
     input  wire        clk,
     input  wire        resetn,
     // inst sram interface
-    output wire        inst_sram_en,
-    output wire [3:0]  inst_sram_we,      
+
+    output wire        inst_sram_req,
+    output wire        inst_sram_wr,
+    output wire [1:0]  inst_sram_size,
+    output wire [3:0]  inst_sram_wstrb,   
     output wire [31:0] inst_sram_addr,
     output wire [31:0] inst_sram_wdata,
+    input  wire        inst_sram_addr_ok,
+    input  wire        inst_sram_data_ok,
     input  wire [31:0] inst_sram_rdata,
     // data sram interface
-    output wire        data_sram_en,
-    output wire [3:0]  data_sram_we,
+
+    output wire        data_sram_req,
+    output wire        data_sram_wr,
+    output wire [1:0]  data_sram_size,
+    output wire [3:0]  data_sram_wstrb,
     output wire [31:0] data_sram_addr,
     output wire [31:0] data_sram_wdata,
+    input  wire        data_sram_addr_ok,
+    input  wire        data_sram_data_ok,
     input  wire [31:0] data_sram_rdata,
     // trace debug interface
     output wire [31:0] debug_wb_pc,
@@ -107,10 +117,15 @@ stage1_IF fetch(
     .br_bus             (br_bus),
     .fs_to_ds_valid     (fs_to_ds_valid),
     .fs_to_ds_bus       (fs_to_ds_bus),
-    .inst_sram_en       (inst_sram_en),
-    .inst_sram_wen      (inst_sram_we),
+
+    .inst_sram_req      (inst_sram_req),
+    .inst_sram_wr       (inst_sram_wr),
+    .inst_sram_size     (inst_sram_size),
+    .inst_sram_wstrb    (inst_sram_wstrb),
     .inst_sram_addr     (inst_sram_addr),
     .inst_sram_wdata    (inst_sram_wdata),
+    .inst_sram_addr_ok  (inst_sram_addr_ok),
+    .inst_sram_data_ok  (inst_sram_data_ok),
     .inst_sram_rdata    (inst_sram_rdata)
 );
 
@@ -139,7 +154,9 @@ stage2_ID decode(
     .br_bus             (br_bus),
 
     .es_to_ds_bus       (es_to_ds_bus),
-    .ms_to_ds_bus       (ms_to_ds_bus)
+    .ms_to_ds_bus       (ms_to_ds_bus),
+
+    .data_sram_data_ok  (data_sram_data_ok)
 );
 
 /*----------------------------------------------------------*/
@@ -164,10 +181,15 @@ stage3_EX ex(
     .es_to_ds_bus       (es_to_ds_bus),
     .if_ms_ex      (if_ms_ex),
 
-    .data_sram_en       (data_sram_en),
-    .data_sram_wen      (data_sram_we),
+    .data_sram_req      (data_sram_req),
+    .data_sram_wr       (data_sram_wr),
+    .data_sram_size     (data_sram_size),
+    .data_sram_wstrb    (data_sram_wstrb),
     .data_sram_addr     (data_sram_addr),
     .data_sram_wdata    (data_sram_wdata),
+
+    .data_sram_addr_ok  (data_sram_addr_ok),
+    .data_sram_data_ok  (data_sram_data_ok),
 
     .global_time_cnt    (global_time_cnt)
 );
@@ -193,6 +215,7 @@ stage4_MEM mem(
     .ms_to_ds_bus       (ms_to_ds_bus),
     .if_ms_ex           (if_ms_ex),
 
+    .data_sram_data_ok  (data_sram_data_ok),
     .data_sram_rdata    (data_sram_rdata)
 );
 

@@ -17,10 +17,15 @@ module stage3_EX(
     output [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
     input                           if_ms_ex,
 
-    output data_sram_en,
-    output [3:0]data_sram_wen,
-    output [31:0] data_sram_addr,
-    output [31:0] data_sram_wdata,
+    output              data_sram_req,
+    output              data_sram_wr,
+    output [1:0]        data_sram_size,
+    output [3:0]        data_sram_wstrb,
+    output [31:0]       data_sram_addr,
+    output [31:0]       data_sram_wdata,
+
+    input               data_sram_addr_ok,
+    input               data_sram_data_ok,
 
     input [63:0] global_time_cnt
 );
@@ -102,8 +107,6 @@ always @(posedge clk)
             ds_to_es_bus_reg <= ds_to_es_bus;
         else if(es_need_wait_div)        
             ds_to_es_bus_reg <= ds_to_es_bus_reg;
-        else
-            ds_to_es_bus_reg <= 0;
     end
 
 
@@ -181,6 +184,11 @@ assign es_to_ms_bus[177:177] = es_ex_ALE;
 assign es_to_ms_bus[178:178] = es_ex_break;
 assign es_to_ms_bus[179:179] = es_has_int;
 assign es_to_ms_bus[211:180] = es_vaddr;
+
+//task14
+//when st, we need raise ms_ready_go when data_ok
+//so we need to tell ms that it's a st inst
+assign es_to_ms_bus[212:212] = es_mem_we;
 
 /*-------------------------------------------------------*/
 
@@ -313,10 +321,19 @@ always@(posedge clk)
 /*-------------------------------------------------------*/
 
 /*-------------------------valid-------------------------*/
+wire no_exception;
+assign no_exception = ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int;
+
+// 当MS级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
+// 当es流水级或ms,ws有异常时阻止访存，为了维护精确异常。
+assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_mem_we) && es_valid;
 reg es_valid;   
 
 wire es_ready_go;
-assign es_ready_go = es_need_wait_div ? (signed_out_tvalid || unsigned_out_tvalid) : 1'b1;
+//对es_ready_go,如果是访存指令，则需要等待与addr_ok握手后再拉高
+//若非访存指令，如果是除法指令则一个clk算不出结果，需要等待结果有效
+assign es_ready_go = if_es_ex ? 1'b1 : (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
+                     (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
 assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
 assign es_to_ms_valid = es_valid && es_ready_go;
 
@@ -377,20 +394,43 @@ assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || e
 assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
 */
 
-assign data_sram_en = ~es_ex_ALE;   //when ALE, stop read
+/*
+    output              data_sram_req,
+    output              data_sram_wr,
+    output [1:0]        data_sram_size,
+    output [3:0]        data_sram_wstrb,
+    output [31:0]       data_sram_addr,
+    output [31:0]       data_sram_wdata,
+*/
 
-// when es_ex or ex before es_inst or es_has_int, stop write 
-assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int) ? w_strb : 4'b0000;
+assign data_sram_wr = es_mem_we;   
+assign data_sram_size = es_mem_we ? 
+                        (es_st_op[0] ? 2'b10 :  //st_w  
+                         es_st_op[1] ? 2'b00 :  //st_b
+                         es_st_op[2] ? 2'b01 : 2'b00)
+                        :
+                        es_res_from_mem ?
+                        (es_ld_op[0] ? 2'b10 :  //ld_w
+                         (es_ld_op[1] | es_ld_op[2]) ? 2'b00 :  //ld_b. ld_bu
+                         (es_ld_op[3] | es_ld_op[4]) ? 2'b01 : 2'b00)
+                        :
+                        2'b00;
 
-assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+assign data_sram_wstrb = es_st_op[0] ? 4'b1111 :
+                         es_st_op[1] ? (es_unaligned_addr==2'b00 ? 4'b0001 : es_unaligned_addr==2'b01 ? 4'b0010 : 
+                                es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
+                         es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
+
+//assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+assign data_sram_addr  = es_alu_result;
 assign data_sram_wdata = real_wdata;        
 /*--------------------------------------------------------*/
 
 /*-----------------------deliver es_to_ds_bus----------------*/
-wire IF_LOAD;   //if inst is load --> which means forward needs block for one clk
-assign IF_LOAD = es_res_from_mem;
+wire if_es_load;   //if inst is load --> which means forward needs block for one clk
+assign if_es_load = es_res_from_mem;
 //task12 add es_csr_write, es_csr_num
-assign es_to_ds_bus = {es_gr_we,es_dest,IF_LOAD,es_calcu_result,
+assign es_to_ds_bus = {es_valid,es_gr_we,es_dest,if_es_load,es_calcu_result,
                        es_csr_write, es_csr_num, es_csr};
 
 /*-------------------------------------------------------*/

@@ -23,7 +23,9 @@ module stage2_ID(
     output [`WIDTH_BR_BUS-1:0] br_bus,
 
     input [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
-    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
+    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus,
+
+    input data_sram_data_ok
 );
 
 /*-------------------------for decode--------------------------*/
@@ -534,23 +536,27 @@ wire [13:0] ws_csr_num;
 wire ws_csr;
 assign {ws_csr, ws_csr_num, ws_ertn_flush, ws_csr_write, rf_we, rf_waddr,rf_wdata} = ws_to_ds_bus;
 
+wire es_valid;
 wire es_we;
 wire [4:0] es_dest;
-wire IF_LOAD;
+wire if_es_load;
 wire [31:0] es_wdata;
 wire es_csr_write;
 wire [13:0] es_csr_num;
 wire es_csr;
 
+wire ms_to_ws_valid;
+wire ms_valid;
 wire ms_we;
 wire [4:0] ms_dest;
+wire if_ms_load;
 wire [31:0] ms_wdata;
 wire ms_csr_write;
 wire [13:0] ms_csr_num;
 wire ms_csr;
 
-assign {es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
-assign {ms_we, ms_dest, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
+assign {es_valid, es_we, es_dest, if_es_load, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
+assign {ms_to_ws_valid, ms_valid, ms_we, ms_dest, if_ms_load, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
 /*-------------------------------------------------------*/
 
 /*-----------------------deliver br_bus----------------------*/
@@ -560,11 +566,16 @@ assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)
                    || inst_jirl || inst_bl || inst_b) && ds_valid;
 
 wire br_taken_cancel;
+wire br_stall;
+//当译码级是跳转指令，且与前面的load指令有数据冲突时，需要拉高br_stall令取指暂时阻塞
+assign br_stall = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt
+                || inst_bge || inst_bgeu || inst_bltu) && 
+                ((es_valid && if_es_load && (ex_crush1 || ex_crush2)) || (~ms_to_ws_valid && ms_valid && if_ms_load && (mem_crush1 || mem_crush2)) || csr_crush);
 
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt 
                              || inst_bge || inst_bltu || inst_bgeu) ? (ds_pc + br_offs) :   
                                                    /*inst_jirl*/ (rj_value + jirl_offs); 
-assign br_bus = {br_taken_cancel,br_taken,br_target};           
+assign br_bus = {br_taken_cancel, br_stall, br_taken, br_target};           
 /*-------------------------------------------------------*/
 
 /*-----------------------deliver ds_to_es_bus----------------*/
@@ -585,6 +596,7 @@ assign imm = src2_is_4 ? 32'h4                       :
 assign dst_is_r1     = inst_bl;
 //task13 --> inst_rdcntid is specail --> write into reg rj
 assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
+
 assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
                        ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break & ~ds_ex_INE & ~ds_ex_ADEF &
                        ~ds_ex_syscall;    //task12 add csr will write reg_file 
@@ -723,7 +735,7 @@ assign if_read_addr2 = inst_beq || inst_bne || inst_blt || inst_bge || inst_bltu
                        inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu ||
                        inst_csrrd || inst_csrwr || inst_csrxchg;     //task12 add 
 
-wire Need_Block;    //(ex_crush & IF_LOAD) or csr_crush
+wire Need_Block;    
 
 //when ertn_flush or wb_ex or has_int , we can't block ,becaue it will make ds_allow_in down, so that fs_allow_in down, finally fetch error
 /*
@@ -737,17 +749,20 @@ when fs_allow_in down, we block (fetch_pc <= next_pc), and this next_pc is essen
 or return from exception, this out_of_exception block will make next_pc (key) lost
 so we must avoid this situation happen!
 */
-assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
+//assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
+//assign Need_Block = csr_crush && ~ertn_flush && ~wb_ex && ~has_int;
+assign Need_Block = ( (if_es_load && (ex_crush1 || ex_crush2)) || (~ms_to_ws_valid && if_ms_load && (mem_crush1 || mem_crush2)) || csr_crush )
+                    && ~ertn_flush && ~wb_ex && ~has_int;
 
 wire ex_crush1;
 wire ex_crush2;
-assign ex_crush1 = (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
-assign ex_crush2 = (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
+assign ex_crush1 = es_valid && (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
+assign ex_crush2 = es_valid && (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
 
 wire mem_crush1;
 wire mem_crush2;
-assign mem_crush1 = (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
-assign mem_crush2 = (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
+assign mem_crush1 = ms_valid && (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
+assign mem_crush2 = ms_valid && (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
 
 wire wb_crush1;
 wire wb_crush2;
@@ -774,7 +789,7 @@ to achieve forward deliver
 
 wire csr_crush;
 
-assign csr_crush = (es_csr && (ex_crush1 || ex_crush2)) || (ms_csr && (mem_crush1 || mem_crush2));  //|| (ws_csr && (wb_crush1 || wb_crush2));
+assign csr_crush = ds_valid && ( (es_valid && es_csr && (ex_crush1 || ex_crush2)) || (ms_valid && ms_csr && (mem_crush1 || mem_crush2)) );  //|| (ws_csr && (wb_crush1 || wb_crush2));
 
 //forward deliver
 wire [31:0] forward_rdata1;
