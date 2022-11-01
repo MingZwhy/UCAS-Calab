@@ -1,15 +1,11 @@
-`define WIDTH_BR_BUS       34
-`define WIDTH_FS_TO_DS_BUS 64
-`define WIDTH_DS_TO_ES_BUS 164
-`define WIDTH_ES_TO_MS_BUS 78
-`define WIDTH_MS_TO_WS_BUS 70
-`define WIDTH_WS_TO_DS_BUS 38
-`define WIDTH_ES_TO_DS_BUS 39
-`define WIDTH_MS_TO_DS_BUS 38
+`include "width.vh"
 
 module stage2_ID(
     input clk,
     input reset,
+    input ertn_flush,
+    input has_int,
+    input wb_ex,
 
     input es_allow_in,
     output ds_allow_in,
@@ -120,6 +116,34 @@ wire        inst_bge;
 wire        inst_bltu;
 wire        inst_bgeu;
 
+//task12 add inst
+wire        inst_csrrd;
+wire        inst_csrwr;
+wire        inst_csrxchg;
+wire        inst_ertn;
+wire        inst_syscall;
+
+//task13 add inst
+wire        inst_rdcntvl_w;
+wire        inst_rdcntvh_w;
+wire        inst_rdcntid;
+wire        inst_break;
+
+//task13 add INE(ָ�����)
+wire ds_ex_INE;
+//hint ds_pc == 0 means the ds cache is cleared, so at this time inst is empty, is not an INE exception actually
+assign ds_ex_INE   =   ~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and |
+                         inst_or | inst_xor | inst_slli_w | inst_srli_w | inst_srai_w |
+                         inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_b |
+                         inst_bl | inst_beq | inst_bne | inst_lu12i_w | inst_slti |
+                         inst_sltui | inst_andi | inst_ori | inst_xori | inst_sll_w |
+                         inst_srl_w | inst_sra_w | inst_pcaddu12i | inst_mul_w | inst_mulh_w |
+                         inst_mulh_wu | inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
+                         inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b |
+                         inst_st_h | inst_blt | inst_bge | inst_bltu | inst_bgeu |
+                         inst_csrrd | inst_csrwr | inst_csrxchg | inst_ertn | inst_syscall |
+                         inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid | inst_break) && (ds_pc != 32'b0);
+
 wire        need_ui5;
 wire        need_SignExtend_si12;
 wire        need_ZeroExtend_si12;
@@ -145,7 +169,7 @@ assign rk   = inst[14:10];  //checked
 assign i12  = inst[21:10];  //checked
 assign i20  = inst[24: 5];  //checked
 assign i16  = inst[25:10];  //checked
-assign i26  = {inst[ 9: 0], inst[25:10]};   //checked  !!!娉ㄦ剰B鎸囦护鐨勭珛鍗虫暟楂樹綆浣嶆槸鍙嶇殑
+assign i26  = {inst[ 9: 0], inst[25:10]};   //checked 
 
 decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
@@ -205,7 +229,7 @@ assign inst_bl     = op_31_26_d[6'h15];
 //  pc = pc + SignExtend({offs16, 2'b0}, GRLEN)
 assign inst_beq    = op_31_26_d[6'h16];
 //bne: rj, rd, offs16
-//if (rj==rd)
+//if (rj!=rd)
 //  pc = pc + SignExtend({offs16, 2'b0}, GRLEN)
 assign inst_bne    = op_31_26_d[6'h17];
 //lui2i_w: rd, si20
@@ -372,6 +396,66 @@ assign inst_bltu = op_31_26_d[6'h1a];
 */
 assign inst_bgeu = op_31_26_d[6'h1b];
 
+//task12 add
+
+/*csrrd csrrd: rd, csr_num
+* rd <-- CSR[csr_num]
+*/
+assign inst_csrrd = op_31_26_d[6'h1] & ~inst[25] & ~inst[24] & (rj==0);
+
+/*csrwr csrwr: rd, csr_num
+* rd(old) --> CSR[csr_num]
+* rd(new) <-- CSR[csr_num](old)
+*/
+assign inst_csrwr = op_31_26_d[6'h1] & ~inst[25] & ~inst[24] & (rj==1);
+
+/*csrxchg csrxchg: rd, rj, csr_num
+* rd(old) --> CSR[csr_num] according to wmask in rj
+* rd(new) <-- CSR[csr_num](old)
+*/
+assign inst_csrxchg = op_31_26_d[6'h1] & ~inst[25] & ~inst[24] & (rj!=0 & rj!=1);
+
+/*ertn ertn: 
+* CSR_PRMD[PPLV,PIE] --> CSR_CRMD[PLV,IE]
+* pc <-- CSR_ERA
+*/
+assign inst_ertn = op_31_26_d[6'h1] & op_25_22_d[4'h9] 
+                 & op_21_20_d[2'h0] & op_19_15_d[5'h10] & (rk==5'b01110);
+
+/*syscall syscall: code
+* run syscall immediately according to code
+*/
+assign inst_syscall = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
+
+//task13 add
+
+/*rdcntvl.w:  rdcnttvl.w rd
+* rd <-- global_time_cnt[31:0]
+*/
+assign inst_rdcntvl_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h0] &
+                        (rk == 5'b11000) & (rj == 5'b00000);
+
+/*rdcntvh.w: rdcnttvh.w rd
+* rd <-- global_time_cnt[63:32]
+*/
+assign inst_rdcntvh_w = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h0] &
+                        (rk == 5'b11001) & (rj == 5'b00000);
+
+/*rdcntid rdcntid rj
+* rj <-- CSR_TID
+*/
+assign inst_rdcntid = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h0] &
+                    (rk == 5'b11000) & (rd == 5'b00000);
+
+/*break: break code
+* break exception
+*/
+assign inst_break = op_31_26_d[6'h0] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h14];
+
+//task13 add ds_ex_break
+wire ds_ex_break;
+assign ds_ex_break = inst_break;
+
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;  
 assign need_SignExtend_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui
                                             | inst_ld_b | inst_ld_bu | inst_ld_h | inst_ld_hu | inst_st_b | inst_st_h;
@@ -387,7 +471,8 @@ assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :
 
 assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};   
 
-assign src_reg_is_rd = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_w | inst_st_b | inst_st_h;
+assign src_reg_is_rd = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_w | inst_st_b | inst_st_h
+                                | inst_csrrd | inst_csrwr | inst_csrxchg;
 
 //used for judging br_taken
 assign rj_eq_rd = (rj_value == rkd_value);
@@ -406,40 +491,66 @@ assign {cout, rj_rkd_adder_result} = rj_value + adver_rkd_value + cin;
 
 assign signed_rj_less_rkd = (rj_value[31] & ~rkd_value[31])
                                | ((rj_value[31] ~^ rkd_value[31]) & rj_rkd_adder_result[31]);
-assign unsigned_rj_less_rkd = ~cout;                             
+assign unsigned_rj_less_rkd = ~cout;                      
+
 
 /*----------------------------------------------------------------*/
 
 /*-----------------------receive fs_to_ds_bus----------------*/
 wire [31:0] ds_pc;
+wire ds_ex_ADEF;
 
 reg [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             fs_to_ds_bus_reg <= 0;
+        else if(ertn_flush || wb_ex)
+            fs_to_ds_bus_reg <= 0;
         else if(fs_to_ds_valid && ds_allow_in)         
             fs_to_ds_bus_reg <= fs_to_ds_bus;
     end
-assign {inst,ds_pc} = fs_to_ds_bus_reg;         //_reg;
+assign {ds_ex_ADEF, inst, ds_pc} = fs_to_ds_bus_reg;         //_reg;
 /*-------------------------------------------------------*/
 
 /*-----------------------receive es,ms,ws_to_ds_bus----------------*/
+/*
+assign ws_to_ds_bus[31:0] = ws_wdata;
+assign ws_to_ds_bus[36:32] = ws_waddr;
+assign ws_to_ds_bus[37:37] = ws_we;
+assign ws_to_ds_bus[38:38] = ws_csr_write;
+assign ws_to_ds_bus[39:39] = ws_ertn_flush;
+assign ws_to_ds_bus[53:40] = ws_csr_num;
+*/
+
 wire rf_we;
 wire [4:0] rf_waddr;
 wire [31:0] rf_wdata;
-assign {rf_we,rf_waddr,rf_wdata} = ws_to_ds_bus;
+
+//task12 add
+wire ws_csr_write;
+wire ws_ertn_flush;
+wire [13:0] ws_csr_num;
+wire ws_csr;
+assign {ws_csr, ws_csr_num, ws_ertn_flush, ws_csr_write, rf_we, rf_waddr,rf_wdata} = ws_to_ds_bus;
 
 wire es_we;
 wire [4:0] es_dest;
 wire IF_LOAD;
 wire [31:0] es_wdata;
+wire es_csr_write;
+wire [13:0] es_csr_num;
+wire es_csr;
+
 wire ms_we;
 wire [4:0] ms_dest;
 wire [31:0] ms_wdata;
+wire ms_csr_write;
+wire [13:0] ms_csr_num;
+wire ms_csr;
 
-assign {es_we,es_dest,IF_LOAD,es_wdata} = es_to_ds_bus;
-assign {ms_we,ms_dest,ms_wdata} = ms_to_ds_bus;
+assign {es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
+assign {ms_we, ms_dest, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
 /*-------------------------------------------------------*/
 
 /*-----------------------deliver br_bus----------------------*/
@@ -471,10 +582,14 @@ assign imm = src2_is_4 ? 32'h4                       :
              need_SignExtend_si12 ? SignExtend_imm12 :
              need_ZeroExtend_si12 ? ZeroExtend_imm12 :   
              32'b0 ;
-assign dst_is_r1     = inst_bl;     
-assign dest = dst_is_r1 ? 5'd1 : rd;
+assign dst_is_r1     = inst_bl;
+//task13 --> inst_rdcntid is specail --> write into reg rj
+assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
 assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
-                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu;   
+                       ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break & ~ds_ex_INE & ~ds_ex_ADEF &
+                       ~ds_ex_syscall;    //task12 add csr will write reg_file 
+//debug record: when ds_ex_INE happen, means no inst, can't write reg_file, when ds_ex_ADEF, means error intn, can't write reg_file
+
 assign mem_we        = inst_st_w | inst_st_b | inst_st_h;
 
 assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
@@ -572,6 +687,26 @@ assign ds_to_es_bus[153:153] = need_wait_div;
 assign ds_to_es_bus[155:154] = div_op;
 assign ds_to_es_bus[160:156] = ld_op;
 assign ds_to_es_bus[163:161] = st_op;
+
+//task12
+assign ds_to_es_bus[177:164] = ds_csr_num;
+assign ds_to_es_bus[209:178] = ds_csr_wmask;
+assign ds_to_es_bus[210:210] = ds_csr_write;
+assign ds_to_es_bus[211:211] = ds_ertn_flush;
+assign ds_to_es_bus[212:212] = ds_csr;
+assign ds_to_es_bus[213:213] = ds_ex_syscall;
+assign ds_to_es_bus[228:214] = ds_code;
+
+//task13
+wire ds_has_int;
+assign ds_has_int = has_int;
+
+assign ds_to_es_bus[229:229] = inst_rdcntvl_w || inst_rdcntvh_w; 
+assign ds_to_es_bus[230:230] = inst_rdcntvh_w;
+assign ds_to_es_bus[231:231] = ds_ex_INE;
+assign ds_to_es_bus[232:232] = ds_ex_ADEF;
+assign ds_to_es_bus[233:233] = ds_ex_break;
+assign ds_to_es_bus[234:234] = ds_has_int;
 /*-------------------------------------------------------*/
 
 /*--------------------------------valid---------------------------*/
@@ -579,16 +714,30 @@ reg ds_valid;
 wire if_read_addr1;   
 wire if_read_addr2;   
 
-assign if_read_addr1 = ~inst_b && ~inst_bl;
+assign if_read_addr1 = ~inst_b && ~inst_bl && ~inst_csrrd && ~inst_csrwr && ~inst_syscall && ~inst_ertn &&
+                        ~inst_rdcntid && ~inst_rdcntvl_w && ~inst_rdcntvh_w && ~inst_break;
 assign if_read_addr2 = inst_beq || inst_bne || inst_blt || inst_bge || inst_bltu || inst_bgeu || 
                        inst_xor || inst_or || inst_and || inst_nor ||
                        inst_sltu || inst_slt || inst_sub_w || inst_add_w || inst_st_w || inst_st_b || inst_st_h ||
                        inst_sll_w || inst_srl_w || inst_sra_w || inst_mul_w || inst_mulh_w || inst_mulh_wu ||
-                       inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu;
+                       inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu ||
+                       inst_csrrd || inst_csrwr || inst_csrxchg;     //task12 add 
 
-wire Need_Block;    //ex_crush & IF_LOAD
+wire Need_Block;    //(ex_crush & IF_LOAD) or csr_crush
 
-assign Need_Block = (ex_crush1 || ex_crush2) && IF_LOAD;
+//when ertn_flush or wb_ex or has_int , we can't block ,becaue it will make ds_allow_in down, so that fs_allow_in down, finally fetch error
+/*
+condition && ~ertn_flush && ~wb_ex && ~has_int in this place is to solve a very rare and coincide situation:
+when an ertn_flush or wb_ex and has_int happens (signal raised)
+and at the same time, inst in decode_stage trigger a read_write conflict in csr_inst and neel_block
+actually this decode_stage inst and csr_inst should not be executed (we will solve this by clearing the cache in line)
+but if we allow this decode_stage inst to trigger a block, ds_ready_go will be down because of it
+as a result, ds_allow_in will be down therefore, and this will cause fs_allow_in also be down which is dangerous
+when fs_allow_in down, we block (fetch_pc <= next_pc), and this next_pc is essential to getting into exception
+or return from exception, this out_of_exception block will make next_pc (key) lost
+so we must avoid this situation happen!
+*/
+assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
 
 wire ex_crush1;
 wire ex_crush2;
@@ -604,6 +753,28 @@ wire wb_crush1;
 wire wb_crush2;
 assign wb_crush1 = (rf_we && rf_waddr!=0) && (if_read_addr1 && rf_raddr1==rf_waddr);
 assign wb_crush2 = (rf_we && rf_waddr!=0) && (if_read_addr2 && rf_raddr2==rf_waddr);
+
+//task12 add csr_crush
+/*
+csr_crush happen when an instruction read reg
+which csr_inst will write in next clks
+this condition is specail because csr_int read csr_reg and 
+write into reg_file in wb_stage, so if we want to use forward deliver
+to solve read_write inflict, we must use more resources,
+but csr_inst is rare which means read_write conflict in csr_inst is rarer
+so forward deliver is a waste (not worthy)
+so in this place , we just block when read_write_conflict in csr_inst happen
+*/
+
+/*
+if ws_csr && (wb_crush1 || wb_crush2), we needn't block
+because we can use existed data_path used for solving past read_write conflict directly
+to achieve forward deliver
+*/
+
+wire csr_crush;
+
+assign csr_crush = (es_csr && (ex_crush1 || ex_crush2)) || (ms_csr && (mem_crush1 || mem_crush2));  //|| (ws_csr && (wb_crush1 || wb_crush2));
 
 //forward deliver
 wire [31:0] forward_rdata1;
@@ -629,6 +800,35 @@ always @(posedge clk)
             ds_valid <= fs_to_ds_valid;
     end
 /*----------------------------------------------------------------*/
+
+/*------------------------------CSR inst--------------------------*/
+
+//inst[23:10] -- csr_num
+wire [13:0] ds_csr_num;
+//when inst_rdcntid --> read CSR_TID
+assign ds_csr_num = inst_rdcntid ? `CSR_TID : inst[23:10];
+
+wire ds_ex_syscall;
+assign ds_ex_syscall = inst_syscall;
+
+wire [14:0] ds_code;
+assign ds_code = inst[14:0];
+
+wire ds_csr;
+assign ds_csr = inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid;
+
+wire ds_csr_write;
+assign ds_csr_write = inst_csrwr || inst_csrxchg;
+
+wire [31:0] ds_csr_wmask;
+assign ds_csr_wmask = inst_csrxchg ? rj_value : 32'hffffffff;       //mask <-- rj
+
+wire ds_ertn_flush;
+assign ds_ertn_flush = inst_ertn;
+
+
+/*----------------------------------------------------------------*/
+
 
 /*-------------------------link reg_file---------------------------*/
 assign rf_raddr1 = rj;  

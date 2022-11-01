@@ -1,11 +1,4 @@
-`define WIDTH_BR_BUS       34
-`define WIDTH_FS_TO_DS_BUS 64
-`define WIDTH_DS_TO_ES_BUS 164
-`define WIDTH_ES_TO_MS_BUS 78
-`define WIDTH_MS_TO_WS_BUS 70
-`define WIDTH_WS_TO_DS_BUS 38
-`define WIDTH_ES_TO_DS_BUS 39
-`define WIDTH_MS_TO_DS_BUS 38
+`include "width.vh"
 /*
 `include "stage1_IF.v"
 `include "stage2_ID.v"
@@ -56,28 +49,60 @@ wire [`WIDTH_BR_BUS -1:0] br_bus;
 wire [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus;
 wire [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus;
 
-/*---------------------------FETCH--------------------------*/
+//task12 -- from ms to es --> help judge store
+wire if_ms_ex;
+
+//task12,13 add
+wire [`WIDTH_CSR_NUM-1:0] csr_num;
+wire                      csr_re;
+wire [31:0]               csr_rvalue;
+wire [31:0]               ertn_pc;
+wire [31:0]               ex_entry;
+
+wire                      csr_we;
+wire [31:0]               csr_wvalue;
+wire [31:0]               csr_wmask;
+
+wire                      wb_ex;
+wire [31:0]               wb_pc; 
+wire                      ertn_flush;
+wire [5:0]                wb_ecode;
+wire [8:0]                wb_esubcode;
+wire [31:0]               wb_vaddr;
+wire [31:0]               coreid_in;
+
+wire                      has_int;
+wire [7:0]                hw_int_in = 8'b0;
+wire                      ipi_int_in = 1'b0;
+
+//global timer counter (64bit)
+reg [63:0] global_time_cnt;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            global_time_cnt <= 0;
+        else if(global_time_cnt == 64'hffffffffffffffff)
+            global_time_cnt <= 0;
+        else
+            global_time_cnt <= global_time_cnt + 1'b1;
+    end
+
+//task13
 /*
-module stage1_IF(
-    input clk,
-    input reset,
-    input ds_allow_in,
-    input [`WIDTH_BR_BUS-1:0] br_bus,
-    output fs_to_ds_valid,
-    output [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
-
-    output inst_sram_en,
-    output [3:0] inst_sram_wen,
-    output [31:0] inst_sram_addr,
-    output [31:0] inst_sram_wdata,
-
-    input [31:0] inst_sram_rdata
-);
+为CPU增加取指地址错(ADEF)、地址非对齐(ALE)、断点(BRK)和指令不存在(INE)异常的支持
 */
+
+/*---------------------------FETCH--------------------------*/
 
 stage1_IF fetch(
     .clk                (clk),
     .reset              (reset),
+    .ertn_flush         (ertn_flush),
+    .ertn_pc            (ertn_pc),
+    .ex_entry           (ex_entry),
+    .wb_ex              (wb_ex),
+
     .ds_allow_in        (ds_allow_in),
     .br_bus             (br_bus),
     .fs_to_ds_valid     (fs_to_ds_valid),
@@ -93,32 +118,13 @@ stage1_IF fetch(
 
 
 /*---------------------------DECODE--------------------------*/
-/*
-module stage2_ID(
-    input clk,
-    input reset,
-
-    input es_allow_in,
-    output ds_allow_in,
-
-    input fs_to_ds_valid,
-    output ds_to_es_valid, 
-
-    input [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
-    output [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
-
-    //ws_to_ds_bus 承载 寄存器的写信号，写地????????与写数据
-    //从wback阶段 送来 decode阶段 
-    input [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
-    //br_bus 承载 br_taken ???????? br_target 
-    //从decode阶段 送往 fetch阶段
-    output [`WIDTH_BR_BUS-1:0] br_bus,
-);
-*/
 
 stage2_ID decode(
     .clk                (clk),
     .reset              (reset),
+    .ertn_flush         (ertn_flush), 
+    .has_int            (has_int),
+    .wb_ex              (wb_ex),
 
     .es_allow_in        (es_allow_in),
     .ds_allow_in        (ds_allow_in),
@@ -140,30 +146,12 @@ stage2_ID decode(
 
 
 /*---------------------------EXCUTE-------------------------*/
-/*
-module stage3_EX(
-    input clk,
-    input reset,
-
-    input ms_allow_in,
-    output es_allow_in,
-
-    input ds_to_es_valid,
-    output es_to_ms_valid,
-
-    input [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus,
-    output [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
-
-    output data_sram_en,
-    output [3:0]data_sram_wen,
-    output [31:0] data_sram_addr,
-    output [31:0] data_sram_wdata
-);
-*/
 
 stage3_EX ex(
     .clk                (clk),
     .reset              (reset),
+    .ertn_flush         (ertn_flush),
+    .wb_ex              (wb_ex),
 
     .ms_allow_in        (ms_allow_in),
     .es_allow_in        (es_allow_in),
@@ -174,37 +162,25 @@ stage3_EX ex(
     .ds_to_es_bus       (ds_to_es_bus),
     .es_to_ms_bus       (es_to_ms_bus),
     .es_to_ds_bus       (es_to_ds_bus),
+    .if_ms_ex      (if_ms_ex),
 
     .data_sram_en       (data_sram_en),
     .data_sram_wen      (data_sram_we),
     .data_sram_addr     (data_sram_addr),
-    .data_sram_wdata    (data_sram_wdata)
+    .data_sram_wdata    (data_sram_wdata),
+
+    .global_time_cnt    (global_time_cnt)
 );
 
 /*----------------------------------------------------------*/
 
 /*---------------------------MEM----------------------------*/
-/*
-module stage4_MEM(
-    input clk,
-    input reset,
-
-    input ws_allow_in,
-    output ms_allow_in,
-
-    input es_to_ms_valid,
-    output ms_to_ws_valid,
-
-    input [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus,
-    output [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
-    
-    input [31:0] data_sram_rdata
-);
-*/
 
 stage4_MEM mem(
     .clk                (clk),
     .reset              (reset),
+    .ertn_flush         (ertn_flush),
+    .wb_ex              (wb_ex),
 
     .ws_allow_in        (ws_allow_in),
     .ms_allow_in        (ms_allow_in),
@@ -215,6 +191,7 @@ stage4_MEM mem(
     .es_to_ms_bus       (es_to_ms_bus),
     .ms_to_ws_bus       (ms_to_ws_bus),
     .ms_to_ds_bus       (ms_to_ds_bus),
+    .if_ms_ex           (if_ms_ex),
 
     .data_sram_rdata    (data_sram_rdata)
 );
@@ -222,26 +199,6 @@ stage4_MEM mem(
 /*----------------------------------------------------------*/
 
 /*---------------------------WBACK--------------------------*/
-/*
-module stage5_WB(
-    input clk,
-    input reset,
-
-    //no allow in
-    output ws_allow_in,
-
-    input ms_to_ws_valid,
-    //no to valid
-
-    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus,
-    output [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus,
-
-    output [31:0] debug_wb_pc     ,
-    output [ 3:0] debug_wb_rf_we ,
-    output [ 4:0] debug_wb_rf_wnum,
-    output [31:0] debug_wb_rf_wdata
-);
-*/
 
 stage5_WB wb(
     .clk                (clk),
@@ -257,9 +214,84 @@ stage5_WB wb(
     .debug_wb_pc        (debug_wb_pc),
     .debug_wb_rf_we     (debug_wb_rf_we),
     .debug_wb_rf_wnum   (debug_wb_rf_wnum),
-    .debug_wb_rf_wdata  (debug_wb_rf_wdata)
+    .debug_wb_rf_wdata  (debug_wb_rf_wdata),
+
+    //task12 add
+    .csr_num            (csr_num),
+    .csr_re             (csr_re),
+    .csr_rvalue         (csr_rvalue),
+    .csr_we             (csr_we),
+    .csr_wvalue         (csr_wvalue),
+    .csr_wmask          (csr_wmask),
+    .ertn_flush         (ertn_flush),
+    .wb_ex              (wb_ex),
+    .wb_pc              (wb_pc),
+    .wb_ecode           (wb_ecode),
+    .wb_esubcode        (wb_esubcode),
+    .wb_vaddr           (wb_vaddr)
 );
 
 /*----------------------------------------------------------*/
+
+/*
+module csr_reg(
+    input                         clk,
+    input                         reset,
+
+    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //寄存器号
+
+    input                         csr_re,            //读使能
+    output             [31:0]     csr_rvalue,        //读数据
+    output             [31:0]     ertn_pc,
+    output             [31:0]     ex_entry,
+
+    input                         csr_we,            //写使能
+    input              [31:0]     csr_wmask,         //写掩码
+    input              [31:0]     csr_wvalue,        //写数据
+
+    input                         wb_ex,             //写回级异常
+    input              [31:0]     wb_pc,             //异常pc
+    input                         ertn_flush,        //ertn指令执行有效信号
+    input              [5:0]      wb_ecode,          //异常类型1级码
+    input              [8:0]      wb_esubcode,       //异常类型2级码
+    input              [31:0]     wb_vaddr, 
+    input              [31:0]     coreid_in,
+
+    output                        has_int,
+    input              [7:0]      hw_int_in,
+    input                         ipi_int_in
+);
+*/
+
+/*---------------------------csr_reg--------------------------*/
+csr_reg cr(
+    .clk                (clk),
+    .reset              (reset),
+
+    .csr_num            (csr_num),
+    
+    .csr_re             (csr_re),
+    .csr_rvalue         (csr_rvalue),
+    .ertn_pc            (ertn_pc),
+    .ex_entry           (ex_entry),
+
+    .csr_we             (csr_we),
+    .csr_wmask          (csr_wmask),
+    .csr_wvalue         (csr_wvalue),
+
+    .wb_ex              (wb_ex),
+    .wb_pc              (wb_pc),
+    .ertn_flush         (ertn_flush),
+    .wb_ecode           (wb_ecode),
+    .wb_esubcode        (wb_esubcode), 
+    .wb_vaddr           (wb_vaddr),
+    .coreid_in          (coreid_in),
+
+    .has_int            (has_int),
+    .hw_int_in          (hw_int_in),
+    .ipi_int_in         (ipi_int_in)
+);
+
+/*------------------------------------------------------------*/
 
 endmodule
