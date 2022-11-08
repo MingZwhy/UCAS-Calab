@@ -1,0 +1,690 @@
+From 959880d4f87e1fc456214caf3cb879639f40cbbd Mon Sep 17 00:00:00 2001
+From: qisan <guchaoyang20@mails.ucas.ac.cn>
+Date: Tue, 1 Nov 2022 08:47:49 +0800
+Subject: [PATCH] for patch2-14
+
+---
+ cyt_code/for_patch/EX.v        |  68 +++++++++---
+ cyt_code/for_patch/ID.v        |  39 ++++---
+ cyt_code/for_patch/IF.v        | 184 +++++++++++++++++++++++++++------
+ cyt_code/for_patch/MEM.v       |  17 +--
+ cyt_code/for_patch/WB.v        |   2 +-
+ cyt_code/for_patch/mycpu_top.v |  41 ++++++--
+ cyt_code/for_patch/width.vh    |   8 +-
+ 7 files changed, 280 insertions(+), 79 deletions(-)
+
+diff --git a/cyt_code/for_patch/EX.v b/cyt_code/for_patch/EX.v
+index a877f96..424bf97 100644
+--- a/cyt_code/for_patch/EX.v
++++ b/cyt_code/for_patch/EX.v
+@@ -17,10 +17,15 @@ module stage3_EX(
+     output [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
+     input                           if_ms_ex,
+ 
+-    output data_sram_en,
+-    output [3:0]data_sram_wen,
+-    output [31:0] data_sram_addr,
+-    output [31:0] data_sram_wdata,
++    output              data_sram_req,
++    output              data_sram_wr,
++    output [1:0]        data_sram_size,
++    output [3:0]        data_sram_wstrb,
++    output [31:0]       data_sram_addr,
++    output [31:0]       data_sram_wdata,
++
++    input               data_sram_addr_ok,
++    input               data_sram_data_ok,
+ 
+     input [63:0] global_time_cnt
+ );
+@@ -102,8 +107,6 @@ always @(posedge clk)
+             ds_to_es_bus_reg <= ds_to_es_bus;
+         else if(es_need_wait_div)        
+             ds_to_es_bus_reg <= ds_to_es_bus_reg;
+-        else
+-            ds_to_es_bus_reg <= 0;
+     end
+ 
+ 
+@@ -182,6 +185,11 @@ assign es_to_ms_bus[178:178] = es_ex_break;
+ assign es_to_ms_bus[179:179] = es_has_int;
+ assign es_to_ms_bus[211:180] = es_vaddr;
+ 
++//task14
++//when st, we need raise ms_ready_go when data_ok
++//so we need to tell ms that it's a st inst
++assign es_to_ms_bus[212:212] = es_mem_we;
++
+ /*-------------------------------------------------------*/
+ 
+ /*-------------------------link alu---------------------*/
+@@ -313,10 +321,19 @@ always@(posedge clk)
+ /*-------------------------------------------------------*/
+ 
+ /*-------------------------valid-------------------------*/
++wire no_exception;
++assign no_exception = ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int;
++
++// 当MS级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
++// 当es流水级或ms,ws有异常时阻止访存，为了维护精确异常。
++assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_mem_we) && es_valid;
+ reg es_valid;   
+ 
+ wire es_ready_go;
+-assign es_ready_go = es_need_wait_div ? (signed_out_tvalid || unsigned_out_tvalid) : 1'b1;
++//对es_ready_go,如果是访存指令，则需要等待与addr_ok握手后再拉高
++//若非访存指令，如果是除法指令则一个clk算不出结果，需要等待结果有效
++assign es_ready_go = if_es_ex ? 1'b1 : (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
++                     (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
+ assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
+ assign es_to_ms_valid = es_valid && es_ready_go;
+ 
+@@ -377,20 +394,43 @@ assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || e
+ assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
+ */
+ 
+-assign data_sram_en = ~es_ex_ALE;   //when ALE, stop read
++/*
++    output              data_sram_req,
++    output              data_sram_wr,
++    output [1:0]        data_sram_size,
++    output [3:0]        data_sram_wstrb,
++    output [31:0]       data_sram_addr,
++    output [31:0]       data_sram_wdata,
++*/
+ 
+-// when es_ex or ex before es_inst or es_has_int, stop write 
+-assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int) ? w_strb : 4'b0000;
++assign data_sram_wr = es_mem_we;   
++assign data_sram_size = es_mem_we ? 
++                        (es_st_op[0] ? 2'b10 :  //st_w  
++                         es_st_op[1] ? 2'b00 :  //st_b
++                         es_st_op[2] ? 2'b01 : 2'b00)
++                        :
++                        es_res_from_mem ?
++                        (es_ld_op[0] ? 2'b10 :  //ld_w
++                         (es_ld_op[1] | es_ld_op[2]) ? 2'b00 :  //ld_b. ld_bu
++                         (es_ld_op[3] | es_ld_op[4]) ? 2'b01 : 2'b00)
++                        :
++                        2'b00;
++
++assign data_sram_wstrb = es_st_op[0] ? 4'b1111 :
++                         es_st_op[1] ? (es_unaligned_addr==2'b00 ? 4'b0001 : es_unaligned_addr==2'b01 ? 4'b0010 : 
++                                es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
++                         es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
+ 
+-assign data_sram_addr  = {es_alu_result[31:2],2'b00};
++//assign data_sram_addr  = {es_alu_result[31:2],2'b00};
++assign data_sram_addr  = es_alu_result;
+ assign data_sram_wdata = real_wdata;        
+ /*--------------------------------------------------------*/
+ 
+ /*-----------------------deliver es_to_ds_bus----------------*/
+-wire IF_LOAD;   //if inst is load --> which means forward needs block for one clk
+-assign IF_LOAD = es_res_from_mem;
++wire if_es_load;   //if inst is load --> which means forward needs block for one clk
++assign if_es_load = es_res_from_mem;
+ //task12 add es_csr_write, es_csr_num
+-assign es_to_ds_bus = {es_gr_we,es_dest,IF_LOAD,es_calcu_result,
++assign es_to_ds_bus = {es_valid,es_gr_we,es_dest,if_es_load,es_calcu_result,
+                        es_csr_write, es_csr_num, es_csr};
+ 
+ /*-------------------------------------------------------*/
+diff --git a/cyt_code/for_patch/ID.v b/cyt_code/for_patch/ID.v
+index dc46a1d..8489326 100644
+--- a/cyt_code/for_patch/ID.v
++++ b/cyt_code/for_patch/ID.v
+@@ -23,7 +23,9 @@ module stage2_ID(
+     output [`WIDTH_BR_BUS-1:0] br_bus,
+ 
+     input [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
+-    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
++    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus,
++
++    input data_sram_data_ok
+ );
+ 
+ /*-------------------------for decode--------------------------*/
+@@ -534,23 +536,27 @@ wire [13:0] ws_csr_num;
+ wire ws_csr;
+ assign {ws_csr, ws_csr_num, ws_ertn_flush, ws_csr_write, rf_we, rf_waddr,rf_wdata} = ws_to_ds_bus;
+ 
++wire es_valid;
+ wire es_we;
+ wire [4:0] es_dest;
+-wire IF_LOAD;
++wire if_es_load;
+ wire [31:0] es_wdata;
+ wire es_csr_write;
+ wire [13:0] es_csr_num;
+ wire es_csr;
+ 
++wire ms_to_ws_valid;
++wire ms_valid;
+ wire ms_we;
+ wire [4:0] ms_dest;
++wire if_ms_load;
+ wire [31:0] ms_wdata;
+ wire ms_csr_write;
+ wire [13:0] ms_csr_num;
+ wire ms_csr;
+ 
+-assign {es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
+-assign {ms_we, ms_dest, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
++assign {es_valid, es_we, es_dest, if_es_load, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
++assign {ms_to_ws_valid, ms_valid, ms_we, ms_dest, if_ms_load, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
+ /*-------------------------------------------------------*/
+ 
+ /*-----------------------deliver br_bus----------------------*/
+@@ -560,11 +566,16 @@ assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)
+                    || inst_jirl || inst_bl || inst_b) && ds_valid;
+ 
+ wire br_taken_cancel;
++wire br_stall;
++//当译码级是跳转指令，且与前面的load指令有数据冲突时，需要拉高br_stall令取指暂时阻塞
++assign br_stall = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt
++                || inst_bge || inst_bgeu || inst_bltu) && 
++                ((es_valid && if_es_load && (ex_crush1 || ex_crush2)) || (~ms_to_ws_valid && ms_valid && if_ms_load && (mem_crush1 || mem_crush2)) || csr_crush);
+ 
+ assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt 
+                              || inst_bge || inst_bltu || inst_bgeu) ? (ds_pc + br_offs) :   
+                                                    /*inst_jirl*/ (rj_value + jirl_offs); 
+-assign br_bus = {br_taken_cancel,br_taken,br_target};           
++assign br_bus = {br_taken_cancel, br_stall, br_taken, br_target};           
+ /*-------------------------------------------------------*/
+ 
+ /*-----------------------deliver ds_to_es_bus----------------*/
+@@ -585,6 +596,7 @@ assign imm = src2_is_4 ? 32'h4                       :
+ assign dst_is_r1     = inst_bl;
+ //task13 --> inst_rdcntid is specail --> write into reg rj
+ assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
++
+ assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
+                        ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break & ~ds_ex_INE & ~ds_ex_ADEF &
+                        ~ds_ex_syscall;    //task12 add csr will write reg_file 
+@@ -723,7 +735,7 @@ assign if_read_addr2 = inst_beq || inst_bne || inst_blt || inst_bge || inst_bltu
+                        inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu ||
+                        inst_csrrd || inst_csrwr || inst_csrxchg;     //task12 add 
+ 
+-wire Need_Block;    //(ex_crush & IF_LOAD) or csr_crush
++wire Need_Block;    
+ 
+ //when ertn_flush or wb_ex or has_int , we can't block ,becaue it will make ds_allow_in down, so that fs_allow_in down, finally fetch error
+ /*
+@@ -737,17 +749,20 @@ when fs_allow_in down, we block (fetch_pc <= next_pc), and this next_pc is essen
+ or return from exception, this out_of_exception block will make next_pc (key) lost
+ so we must avoid this situation happen!
+ */
+-assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
++//assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
++//assign Need_Block = csr_crush && ~ertn_flush && ~wb_ex && ~has_int;
++assign Need_Block = ( (if_es_load && (ex_crush1 || ex_crush2)) || (~ms_to_ws_valid && if_ms_load && (mem_crush1 || mem_crush2)) || csr_crush )
++                    && ~ertn_flush && ~wb_ex && ~has_int;
+ 
+ wire ex_crush1;
+ wire ex_crush2;
+-assign ex_crush1 = (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
+-assign ex_crush2 = (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
++assign ex_crush1 = es_valid && (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
++assign ex_crush2 = es_valid && (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
+ 
+ wire mem_crush1;
+ wire mem_crush2;
+-assign mem_crush1 = (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
+-assign mem_crush2 = (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
++assign mem_crush1 = ms_valid && (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
++assign mem_crush2 = ms_valid && (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
+ 
+ wire wb_crush1;
+ wire wb_crush2;
+@@ -774,7 +789,7 @@ to achieve forward deliver
+ 
+ wire csr_crush;
+ 
+-assign csr_crush = (es_csr && (ex_crush1 || ex_crush2)) || (ms_csr && (mem_crush1 || mem_crush2));  //|| (ws_csr && (wb_crush1 || wb_crush2));
++assign csr_crush = ds_valid && ( (es_valid && es_csr && (ex_crush1 || ex_crush2)) || (ms_valid && ms_csr && (mem_crush1 || mem_crush2)) );  //|| (ws_csr && (wb_crush1 || wb_crush2));
+ 
+ //forward deliver
+ wire [31:0] forward_rdata1;
+diff --git a/cyt_code/for_patch/IF.v b/cyt_code/for_patch/IF.v
+index 8cbb147..8f6a09f 100644
+--- a/cyt_code/for_patch/IF.v
++++ b/cyt_code/for_patch/IF.v
+@@ -13,59 +13,170 @@ module stage1_IF(
+     output fs_to_ds_valid,
+     output [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
+ 
+-    output inst_sram_en,
+-    output [3:0] inst_sram_wen,
+-    output [31:0] inst_sram_addr,
+-    output [31:0] inst_sram_wdata,
+-
+-    input [31:0] inst_sram_rdata
++    output          inst_sram_req,
++    output          inst_sram_wr,
++    output [1:0]    inst_sram_size,
++    output [3:0]    inst_sram_wstrb,
++    output [31:0]   inst_sram_addr,
++    output [31:0]   inst_sram_wdata,
++
++    input           inst_sram_addr_ok,
++    input           inst_sram_data_ok,
++    input  [31:0]   inst_sram_rdata
+ );
+ 
+ /*--------------------------------valid-----------------------------*/
++    
++// pre_if伪流水级的工作室发出取指请求
++// 当IF级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
++//assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in;
++assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in ? inst_sram_req_reg : 1'b0;
+ 
+-reg fs_valid;    
++reg inst_sram_req_reg;
++always @(posedge clk)
++    begin
++        if(reset)
++            inst_sram_req_reg <= 1'b1;
++        else if(inst_sram_req && inst_sram_addr_ok)
++            //握手成功，在握手成功的下一个时钟上沿拉低req
++            inst_sram_req_reg <= 1'b0;
++        else if(inst_sram_data_ok)
++            //在握手接收到数据(data_ok)时，重新拉高req
++            inst_sram_req_reg <= 1'b1;
++    end
+ 
+-//对fs_valid来说，只要取消reset，相当去前一阶段对它发来的valid信号
++// 当req与addr_ok握手成功时，代表请求发送成功，拉高ready_go
++wire pre_if_ready_go;
++assign pre_if_ready_go = inst_sram_req & inst_sram_addr_ok;
+ wire pre_if_to_fs_valid;
+-assign pre_if_to_fs_valid = !reset;
++assign pre_if_to_fs_valid = !reset & pre_if_ready_go;
+ 
+ wire fs_ready_go;
+-
++// 当data_ok拉高时代表已送来指令码，将fs_ready_go拉高
++// 当temp_inst有效时说明fs_ready_go已经拉高，而ds_allow_in没拉高
++// 因此此时在等ds_allow_in，需要保持temp_inst拉高
++// 同时当deal_with_cancel拉高时，表明需要丢弃下一个收到的错误指令，即将fs_ready_go拉低
++//assign fs_ready_go = deal_with_cancel ? (inst_sram_data_ok ? 1'b1: 1'b0) : ((temp_inst != 0) || inst_sram_data_ok);
++assign fs_ready_go = deal_with_cancel ? 1'b0 : ((temp_inst != 0) || inst_sram_data_ok);
++
++reg fs_valid;
+ always @(posedge clk)
+     begin
+         if(reset)
+             fs_valid <= 1'b0;
+         else if(fs_allow_in)
+-            fs_valid <= pre_if_to_fs_valid;
+-        /*
++            begin
++                if(wb_ex || ertn_flush)
++                    /*对应2.1情况——IF级没有有效指令或
++                    有有效指令但将要流向ID级，若收到cancel
++                    则将下一拍fs_vaild置0*/
++                    fs_valid <= 1'b0;
++                else
++                    fs_valid <= pre_if_to_fs_valid;
++            end
+         else if(br_taken_cancel)
+             fs_valid <= 1'b0;
+-        */
+     end
+ 
+-//将output-fs_to_ds_valid与reg fs_valid连接
+-//考虑到后序可能一个clk完成不了FETCH，raise fs_ready_go
+-assign fs_ready_go = 1'b1;
+ wire fs_allow_in;
+-assign fs_allow_in = !fs_valid || fs_ready_go && ds_allow_in;
++assign fs_allow_in = !fs_valid || (fs_ready_go && ds_allow_in) || (deal_with_cancel && inst_sram_data_ok);
+ assign fs_to_ds_valid = fs_valid && fs_ready_go;
+ 
++//当fs_ready_go = 1 而 ds_allow_in = 0 时
++//IF级收到了指令但是ID级还不让进入，需要设置一组触发器来保存取出的指令
++//当该组触发器有有效数据时，则选择该组触发器保存的数据作为IF级取回的指令送往ID级
++
++reg [31:0] temp_inst;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            temp_inst <= 0;
++        else if(fs_ready_go)
++            begin
++                if(wb_ex || ertn_flush)
++                    //当cancel时，将缓存指令清0
++                    //对应2.2.1情况
++                    temp_inst <= 0;
++                else if(!ds_allow_in)
++                    //暂存指令
++                    temp_inst <= inst_sram_rdata;
++                else
++                    //当ds允许进入时，在这个时钟上沿就立刻将temp_inst
++                    //送入ds级，同时将temp_inst清零，代表该指令缓存不再有有效指令
++                    temp_inst <= 0;
++            end
++    end
++
++/*为了解决清空流水级中的1.2和2.2.2情况
++即在cancel后，IF级后续收到的第一个返回的指令数据是对当前被cancel的取值指令的返回
++因此后续收到的第一个返回的指令数据需要被丢弃，不能让其流向ID级
++解决方法是：
++维护一个触发器，复位值为0，当遇到1.2或2.2.2时，该触发器置1，当收到data_ok时复置0
++当该触发器为1时，将IF级的ready_go抹零，即当data_ok来临的时钟上沿，fs_ready_go
++恰好仍为0，导致刚好丢弃了data（丢弃的指令） */
++reg deal_with_cancel;
++always @(posedge clk)
++    begin
++        if(reset)
++            deal_with_cancel <= 1'b0;
++        else if((wb_ex || ertn_flush) && pre_if_to_fs_valid)
++            //pre_if_to_fs_valid 对应1.2情况——pre-if发送的地址正好被接收
++            deal_with_cancel <= 1'b1;
++        else if(~fs_allow_in && (wb_ex || ertn_flush) && ~fs_ready_go)
++            //~fs_allow_in 且 ~fs_ready_go 对应2.2.2情况——IF级正在等待data_ok
++            deal_with_cancel <= 1'b1;
++        else if(inst_sram_data_ok)
++            deal_with_cancel <= 1'b0;
++    end
++
+ /*----------------------------------------------------------------*/
+ 
+ /*--------------------------------pc------------------------------*/
+ 
+ wire [31:0] br_target;  //跳转地址
+ wire br_taken;          //是否跳转
+-wire br_taken_cancel;
++wire br_stall;          
++wire br_taken_cancel; 
+ //br_taken和br_target来自br_bus
+-assign {br_taken_cancel,br_taken,br_target} = br_bus;
++assign {br_taken_cancel, br_stall, br_taken, br_target} = br_bus;
+ 
+ reg [31:0] fetch_pc; 
+ 
+ wire [31:0] seq_pc;     //顺序取址
+-assign seq_pc = fetch_pc + 4;
++assign seq_pc = (fetch_pc + 4);
+ wire [31:0] next_pc;    //nextpc来自seq或br
+-assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
++assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ex_entry : ertn_flush? ertn_pc : (br_taken && ~br_stall) ? br_target : seq_pc;
++
++/*
++当出现异常入口pc、异常返回pc和跳转pc时，信号和pc可能只能维持一拍，
++但在req收到addr_ok前需要维持取址地址不变
++*/
++
++reg if_keep_pc;
++reg [31:0] br_delay_reg;
++always @(posedge clk)
++    begin
++        if(reset)
++            if_keep_pc <= 1'b0;
++        else if(inst_sram_addr_ok && ~deal_with_cancel && ~wb_ex && ~ertn_flush)
++            if_keep_pc <= 1'b0;
++        else if((br_taken && ~br_stall) || wb_ex || ertn_flush)
++            if_keep_pc <= 1'b1;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            br_delay_reg <= 32'b0;
++        else if(wb_ex)
++            br_delay_reg <= ex_entry;
++        else if(ertn_flush)
++            br_delay_reg <= ertn_pc;
++        else if(br_taken && ~br_stall)
++            br_delay_reg <= br_target;
++    end
++
+    
+ always @(posedge clk)
+     begin
+@@ -80,16 +191,19 @@ always @(posedge clk)
+ /*----------------------------Link to inst_ram---------------------*/
+ 
+ /*
+-    output inst_sram_en,                
+-    output [3:0] inst_sram_wen,         
+-    output [31:0] inst_sram_addr,       
+-    output [31:0] inst_sram_wdata,      
+-    input [31:0] inst_sram_rdata       
++    output          inst_sram_req,
++    output          inst_sram_wr,
++    output [1:0]    inst_sram_size,
++    output [3:0]    inst_sram_wstrb,
++    output [31:0]   inst_sram_addr,
++    output [31:0]   inst_sram_wdata,   
+ */
+ 
+-assign inst_sram_en = pre_if_to_fs_valid && ds_allow_in;
+-assign inst_sram_wen = 4'b0;    //fetch阶段不写
+-assign inst_sram_addr = next_pc;
++//inst_sram_req在上面赋值
++assign inst_sram_wr    = 1'b0;    //fetch阶段只读不写
++assign inst_sram_size  = 2'b10;   //fetch阶段访问4字节
++assign inst_sram_wstrb = 4'b0;    //fetch阶段wstrb无意义
++assign inst_sram_addr  = next_pc;
+ assign inst_sram_wdata = 32'b0;
+ 
+ /*----------------------------------------------------------------*/
+@@ -100,10 +214,14 @@ assign fetch_inst = inst_sram_rdata;
+ 
+ //task13 add ADEF fetch_addr_exception
+ wire fs_ex_ADEF;
+-//fs_ex_ADEF happen when inst_sram_en and last 2 bits of inst_sram_addr are not 2'b00
+-assign fs_ex_ADEF = inst_sram_en && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
+-
+-assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
++//fs_ex_ADEF happen when ~inst_sram_wr and last 2 bits of inst_sram_addr are not 2'b00
++assign fs_ex_ADEF = ~inst_sram_wr && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
++
++//assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
++assign fs_to_ds_bus[31:0] = fetch_pc;
++//当暂存指令缓存有效时，传入temp_inst,无效时正常传入 fetch_inst
++assign fs_to_ds_bus[63:32] = (temp_inst == 0) ? fetch_inst : temp_inst;
++assign fs_to_ds_bus[64:64] = fs_ex_ADEF;
+ 
+ /*----------------------------------------------------------------*/
+ 
+diff --git a/cyt_code/for_patch/MEM.v b/cyt_code/for_patch/MEM.v
+index 1593ed8..425c211 100644
+--- a/cyt_code/for_patch/MEM.v
++++ b/cyt_code/for_patch/MEM.v
+@@ -17,6 +17,7 @@ module stage4_MEM(
+     output [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus,
+     output                           if_ms_ex,
+     
++    input        data_sram_data_ok,
+     input [31:0] data_sram_rdata
+ );
+ 
+@@ -30,7 +31,6 @@ assign es_to_ms_bus[70:39] = es_calcu_result;
+ assign es_to_ms_bus[72:71] = es_unaligned_addr;
+ assign es_to_ms_bus[77:73] = es_ld_op;
+ 
+-//task12
+ //task12
+ assign es_to_ms_bus[91:78] = es_csr_rvalue;
+ assign es_to_ms_bus[123:92] = es_csr_wmask;
+@@ -46,6 +46,7 @@ assign es_to_ms_bus[177:177] = es_ex_ALE;
+ assign es_to_ms_bus[178:178] = es_ex_break;
+ assign es_to_ms_bus[179:179] = es_has_int;
+ assign es_to_ms_bus[211:180] = es_vaddr;
++assign es_to_ms_bus[212:212] = es_mem_we;
+ */
+ 
+ wire [31:0] ms_pc;
+@@ -71,6 +72,7 @@ wire        ms_ex_ALE;
+ wire        ms_ex_break;
+ wire        ms_has_int;
+ wire [31:0] ms_vaddr;
++wire        ms_mem_we;
+ 
+ reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
+ always @(posedge clk)
+@@ -81,11 +83,9 @@ always @(posedge clk)
+             es_to_ms_bus_reg <= 0;
+         else if(es_to_ms_valid && ms_allow_in)
+             es_to_ms_bus_reg <= es_to_ms_bus;
+-        else
+-            es_to_ms_bus_reg <= 0;
+     end 
+ 
+-assign {ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
++assign {ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
+         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
+         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
+         ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
+@@ -145,7 +145,9 @@ assign ms_to_ws_bus[203:172] = ms_vaddr;
+ reg ms_valid;    
+ 
+ wire ms_ready_go;
+-assign ms_ready_go = 1'b1;
++//当是load指令时，需要等待数据握手
++//data_ok拉高时表示store已经写入数据 或 load已经取到数据，将ms_ready_go拉高
++assign ms_ready_go = if_ms_ex ? 1'b1 : (ms_mem_we || ms_res_from_mem) ? data_sram_data_ok : 1'b1;
+ assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
+ /*
+ add conditions & ~ertn_flush & ~wb_ex
+@@ -173,7 +175,10 @@ always @(posedge clk)
+ 
+ /*--------------------deliver ms_to_ds_bus-------------------*/
+ //task12 add ms_csr_write, ms_csr_num
+-assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result,
++
++wire if_ms_load;
++assign if_ms_load = ms_res_from_mem;
++assign ms_to_ds_bus = {ms_to_ws_valid,ms_valid,ms_gr_we,ms_dest,if_ms_load,ms_final_result,
+                        ms_csr_write, ms_csr_num, ms_csr};
+ /*-------------------------------------------------------*/
+ 
+diff --git a/cyt_code/for_patch/WB.v b/cyt_code/for_patch/WB.v
+index 4489d07..0608aa9 100644
+--- a/cyt_code/for_patch/WB.v
++++ b/cyt_code/for_patch/WB.v
+@@ -86,7 +86,7 @@ always @(posedge clk)
+             ms_to_ws_bus_reg <= 0;
+         else if(ms_to_ws_valid && ws_allow_in)
+             ms_to_ws_bus_reg <= ms_to_ws_bus;
+-        else
++        else if((wb_ex || ertn_flush) && ws_valid)
+             ms_to_ws_bus_reg <= 0;
+     end 
+ 
+diff --git a/cyt_code/for_patch/mycpu_top.v b/cyt_code/for_patch/mycpu_top.v
+index 2af5dfa..77cb9f2 100644
+--- a/cyt_code/for_patch/mycpu_top.v
++++ b/cyt_code/for_patch/mycpu_top.v
+@@ -11,16 +11,26 @@ module mycpu_top(
+     input  wire        clk,
+     input  wire        resetn,
+     // inst sram interface
+-    output wire        inst_sram_en,
+-    output wire [3:0]  inst_sram_we,      
++
++    output wire        inst_sram_req,
++    output wire        inst_sram_wr,
++    output wire [1:0]  inst_sram_size,
++    output wire [3:0]  inst_sram_wstrb,   
+     output wire [31:0] inst_sram_addr,
+     output wire [31:0] inst_sram_wdata,
++    input  wire        inst_sram_addr_ok,
++    input  wire        inst_sram_data_ok,
+     input  wire [31:0] inst_sram_rdata,
+     // data sram interface
+-    output wire        data_sram_en,
+-    output wire [3:0]  data_sram_we,
++
++    output wire        data_sram_req,
++    output wire        data_sram_wr,
++    output wire [1:0]  data_sram_size,
++    output wire [3:0]  data_sram_wstrb,
+     output wire [31:0] data_sram_addr,
+     output wire [31:0] data_sram_wdata,
++    input  wire        data_sram_addr_ok,
++    input  wire        data_sram_data_ok,
+     input  wire [31:0] data_sram_rdata,
+     // trace debug interface
+     output wire [31:0] debug_wb_pc,
+@@ -107,10 +117,15 @@ stage1_IF fetch(
+     .br_bus             (br_bus),
+     .fs_to_ds_valid     (fs_to_ds_valid),
+     .fs_to_ds_bus       (fs_to_ds_bus),
+-    .inst_sram_en       (inst_sram_en),
+-    .inst_sram_wen      (inst_sram_we),
++
++    .inst_sram_req      (inst_sram_req),
++    .inst_sram_wr       (inst_sram_wr),
++    .inst_sram_size     (inst_sram_size),
++    .inst_sram_wstrb    (inst_sram_wstrb),
+     .inst_sram_addr     (inst_sram_addr),
+     .inst_sram_wdata    (inst_sram_wdata),
++    .inst_sram_addr_ok  (inst_sram_addr_ok),
++    .inst_sram_data_ok  (inst_sram_data_ok),
+     .inst_sram_rdata    (inst_sram_rdata)
+ );
+ 
+@@ -139,7 +154,9 @@ stage2_ID decode(
+     .br_bus             (br_bus),
+ 
+     .es_to_ds_bus       (es_to_ds_bus),
+-    .ms_to_ds_bus       (ms_to_ds_bus)
++    .ms_to_ds_bus       (ms_to_ds_bus),
++
++    .data_sram_data_ok  (data_sram_data_ok)
+ );
+ 
+ /*----------------------------------------------------------*/
+@@ -164,11 +181,16 @@ stage3_EX ex(
+     .es_to_ds_bus       (es_to_ds_bus),
+     .if_ms_ex      (if_ms_ex),
+ 
+-    .data_sram_en       (data_sram_en),
+-    .data_sram_wen      (data_sram_we),
++    .data_sram_req      (data_sram_req),
++    .data_sram_wr       (data_sram_wr),
++    .data_sram_size     (data_sram_size),
++    .data_sram_wstrb    (data_sram_wstrb),
+     .data_sram_addr     (data_sram_addr),
+     .data_sram_wdata    (data_sram_wdata),
+ 
++    .data_sram_addr_ok  (data_sram_addr_ok),
++    .data_sram_data_ok  (data_sram_data_ok),
++
+     .global_time_cnt    (global_time_cnt)
+ );
+ 
+@@ -193,6 +215,7 @@ stage4_MEM mem(
+     .ms_to_ds_bus       (ms_to_ds_bus),
+     .if_ms_ex           (if_ms_ex),
+ 
++    .data_sram_data_ok  (data_sram_data_ok),
+     .data_sram_rdata    (data_sram_rdata)
+ );
+ 
+diff --git a/cyt_code/for_patch/width.vh b/cyt_code/for_patch/width.vh
+index 79cdf01..b1874b0 100644
+--- a/cyt_code/for_patch/width.vh
++++ b/cyt_code/for_patch/width.vh
+@@ -1,11 +1,11 @@
+-`define WIDTH_BR_BUS       34
++`define WIDTH_BR_BUS       35
+ `define WIDTH_FS_TO_DS_BUS 65
+ `define WIDTH_DS_TO_ES_BUS 235
+-`define WIDTH_ES_TO_MS_BUS 212
++`define WIDTH_ES_TO_MS_BUS 213
+ `define WIDTH_MS_TO_WS_BUS 204
+ `define WIDTH_WS_TO_DS_BUS 55
+-`define WIDTH_ES_TO_DS_BUS 55
+-`define WIDTH_MS_TO_DS_BUS 54
++`define WIDTH_ES_TO_DS_BUS 56
++`define WIDTH_MS_TO_DS_BUS 57
+ 
+ `define WIDTH_CSR_NUM 14
+ 
+-- 
+2.37.2.windows.2
+

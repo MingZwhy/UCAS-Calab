@@ -27,9 +27,18 @@ module stage1_IF(
 
 /*--------------------------------valid-----------------------------*/
     
-// pre_if伪流水级的工作室发出取指请求
-// 当IF级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
-//assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in;
+/*
+pre_if伪流水级发出取指请求:
+
+hint1: when reset , stop req;
+hint2: when br_stall, mean we're calculating for judging whether branch or not,
+       so keep not req until we are sure branch or not;
+hint3: using a reg inst_sram_req_reg, because we want to make sure that
+       turn req to down after shaking_hands (next posedge clk), and 
+       turn req to up when data_ok (got inst actually)
+hint4: req when fs_allow_in , because we don't want to deal with the situation that
+       fs_allow_in is down when (req && addr_ok) --> which is difficult to handle;
+*/
 assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in ? inst_sram_req_reg : 1'b0;
 
 reg inst_sram_req_reg;
