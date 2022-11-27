@@ -1,0 +1,2557 @@
+From a4c2d98a3fef887b790349a36ba018278d7efff5 Mon Sep 17 00:00:00 2001
+From: qisan <guchaoyang20@mails.ucas.ac.cn>
+Date: Tue, 8 Nov 2022 16:45:32 +0800
+Subject: [PATCH] patch for 15
+
+---
+ cyt_code/for_patch/IF.v                    |  15 +-
+ cyt_code/for_patch/cpu_bridge_axi.v        | 545 ++++++++++++++++
+ cyt_code/for_patch/csr_reg.v               | 165 +++--
+ cyt_code/for_patch/mycpu.v                 | 320 ++++++++++
+ cyt_code/for_patch/mycpu_top.v             | 539 +++++++---------
+ cyt_code/patch/generate_ex13_to_ex14.patch | 690 +++++++++++++++++++++
+ 6 files changed, 1878 insertions(+), 396 deletions(-)
+ create mode 100644 cyt_code/for_patch/cpu_bridge_axi.v
+ create mode 100644 cyt_code/for_patch/mycpu.v
+ create mode 100644 cyt_code/patch/generate_ex13_to_ex14.patch
+
+diff --git a/cyt_code/for_patch/IF.v b/cyt_code/for_patch/IF.v
+index 8f6a09f..d64342e 100644
+--- a/cyt_code/for_patch/IF.v
++++ b/cyt_code/for_patch/IF.v
+@@ -27,9 +27,18 @@ module stage1_IF(
+ 
+ /*--------------------------------valid-----------------------------*/
+     
+-// pre_ifÎ±Á÷Ë®¼¶µÄ¹¤×÷ÊÒ·¢³öÈ¡Ö¸ÇëÇó
+-// µ±IF¼¶µÄallowinÎª1Ê±ÔÙ·¢³öreq£¬ÊÇÎªÁË±£Ö¤reqÓëaddr_okÎÕÊÖÊ±allowinÒ²ÊÇÀ­¸ßµÄ
+-//assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in;
++/*
++pre_ifÎ±Á÷Ë®¼¶·¢³öÈ¡Ö¸ÇëÇó:
++
++hint1: when reset , stop req;
++hint2: when br_stall, mean we're calculating for judging whether branch or not,
++       so keep not req until we are sure branch or not;
++hint3: using a reg inst_sram_req_reg, because we want to make sure that
++       turn req to down after shaking_hands (next posedge clk), and 
++       turn req to up when data_ok (got inst actually)
++hint4: req when fs_allow_in , because we don't want to deal with the situation that
++       fs_allow_in is down when (req && addr_ok) --> which is difficult to handle;
++*/
+ assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in ? inst_sram_req_reg : 1'b0;
+ 
+ reg inst_sram_req_reg;
+diff --git a/cyt_code/for_patch/cpu_bridge_axi.v b/cyt_code/for_patch/cpu_bridge_axi.v
+new file mode 100644
+index 0000000..51542d8
+--- /dev/null
++++ b/cyt_code/for_patch/cpu_bridge_axi.v
+@@ -0,0 +1,545 @@
++module cpu_bridge_axi(
++    input           clk,
++    input           resetn,
++
++    /*
++    cpu --> bridge --> axi --
++                            |
++                            V
++    cpu <-- bridge <-- axi --
++    */
++
++    /*
++    inst sram:
++    master: cpu ; slave: bridge
++    input:  cpu --> bridge
++    output: bridge --> cpu
++    */
++    input           inst_req,
++    input           inst_wr,
++    input  [1:0]    inst_size,
++    input  [31:0]   inst_addr,
++    input  [3:0]    inst_wstrb,
++    input  [31:0]   inst_wdata,
++    output [31:0]   inst_rdata,
++    output          inst_addr_ok,
++    output          inst_data_ok,
++
++    /*
++    data sram:
++    master: cpu ; slave: bridge
++    input:  cpu --> bridge
++    output: bridge --> cpu
++    */
++    input           data_req,
++    input           data_wr,
++    input  [1:0]    data_size,
++    input  [31:0]   data_addr,
++    input  [3:0]    data_wstrb,
++    input  [31:0]   data_wdata,
++    output [31:0]   data_rdata,
++    output          data_addr_ok,
++    output          data_data_ok,
++
++    /*
++    axi:
++    master: bridge ; slave: axi
++    input:  axi --> bridge
++    output: bridge --> axi
++    */
++
++    //ar    è¯»è¯·æ±‚é€šé“
++    output [3:0]    arid,           //è¯»è¯·æ±‚IDå·                           å–æŒ‡0ï¼Œå–æ•°1     
++    output [31:0]   araddr,         //è¯»è¯·æ±‚çš„åœ°å€    
++    output [7:0]    arlen,          //fixed --> 8'b0
++    output [2:0]    arsize,         //è¯·æ±‚ä¼ è¾“å¤§å°(æ•°æ®ä¼ è¾“æ¯æ‹çš„å­—èŠ‚æ•°)     
++    output [1:0]    arburst,        //fixed --> 2'b1
++    output [1:0]    arlock,         //fixed --> 2'b0
++    output [3:0]    arcache,        //fixed --> 4'b0
++    output [2:0]    arprot,         //fixed --> 3'b0
++    output          arvalid,        //è¯»è¯·æ±‚åœ°å€æ¡æ‰‹(è¯»è¯·æ±‚åœ°å€æœ‰æ•ˆ)
++    input           arready,        //è¯»è¯·æ±‚åœ°å€æ¡æ‰‹(slaveç«¯å‡†å¤‡å¥½æ¥æ”¶åœ°å€)
++
++    //r  è¯»å“åº”é€šé“
++    input  [3:0]    rid,            //è¯»è¯·æ±‚çš„IDå·ï¼ŒåŒä¸€è¯·æ±‚çš„rid=arid
++    input  [31:0]   rdata,          //è¯»è¯·æ±‚çš„è¯»å›æ•°æ®
++    input  [1:0]    rresp,          //ignore
++    input           rlast,          //ignore
++    input           rvalid,         //è¯»è¯·æ±‚æ•°æ®æ¡æ‰‹(è¯»è¯·æ±‚æ•°æ®æœ‰æ•ˆ)
++    output          rready,         //è¯»è¯·æ±‚æ•°æ®æ¡æ‰‹(masterç«¯å‡†å¤‡å¥½æ¥æ”¶æ•°æ®)
++
++    //aw  å†™è¯·æ±‚é€šé“
++    output [3:0]    awid,           //fixed, 4'b1
++    output [31:0]   awaddr,         //å†™è¯·æ±‚çš„åœ°å€
++    output [7:0]    awlen,          //fixed, 8'b0
++    output [2:0]    awsize,         //è¯·æ±‚ä¼ è¾“çš„å¤§å°(æ•°æ®ä¼ è¾“æ¯æ‹çš„å­—èŠ‚æ•°)
++    output [1:0]    awburst,        //fixed, 2'b1
++    output [1:0]    awlock,         //fixed, 2'b0
++    output [1:0]    awcache,        //fixed, 4'b0
++    output [2:0]    awprot,         //fixed, 3'b0
++    output          awvalid,        //å†™è¯·æ±‚åœ°å€æ¡æ‰‹(å†™è¯·æ±‚åœ°å€æœ‰æ•ˆ)
++    input           awready,        //å†™è¯·æ±‚åœ°å€æ¡æ‰‹(slaveç«¯å‡†å¤‡å¥½æ¥æ”¶åœ°å€)
++
++    //w  å†™æ•°æ®é€šé“
++    output [3:0]    wid,            //fixed, 4'b1
++    output [31:0]   wdata,          //å†™è¯·æ±‚çš„å†™æ•°æ®
++    output [3:0]    wstrb,          //å­—èŠ‚é€‰é€šä½
++    output          wlast,          //fixed, 1'b1
++    output          wvalid,         //å†™è¯·æ±‚æ•°æ®æ¡æ‰‹(å†™è¯·æ±‚æ•°æ®æœ‰æ•ˆ)
++    input           wready,         //å†™è¯·æ±‚æ•°æ®æ¡æ‰‹(slaveç«¯å‡†å¤‡å¥½æ¥æ”¶æ•°æ®)
++
++    //b  å†™å“åº”é€šé“
++    input  [3:0]    bid,            //ignore
++    input  [1:0]    bresp,          //ignore
++    input           bvalid,         //å†™è¯·æ±‚å“åº”æ¡æ‰‹(å†™è¯·æ±‚å“åº”æœ‰æ•ˆ)
++    output          bready          //å†™è¯·æ±‚å“åº”æ¡æ‰‹(masterç«¯å‡†å¤‡å¥½æ¥æ”¶å†™å“åº”)
++);
++
++
++   //è¯»è¯·æ±‚çŠ¶æ€æœº
++localparam  AR_START        = 3'b001,
++            AR_DATA         = 3'b010,
++            AR_INST         = 3'b100,
++
++            //è¯»å“åº”çŠ¶æ€æœº
++            R_START         = 3'b001,
++            R_DATA          = 3'b010,
++            R_INST          = 3'b100,
++
++            //å†™è¯·æ±‚ã€æ•°æ®çŠ¶æ€æœº
++            AW_START        = 3'b001,
++            AW_DATA         = 3'b010,
++            W_DATA          = 3'b100,
++
++            //å†™å“åº”çŠ¶æ€æœº
++            B_START         = 2'b01,
++            B_DATA          = 2'b10;
++
++reg [2:0] ar_cur_state;
++reg [2:0] ar_next_state;
++
++reg [2:0] r_cur_state;
++reg [2:0] r_next_state;
++
++reg [2:0] aw_cur_state;
++reg [2:0] aw_next_state;
++
++reg [1:0] b_cur_state;
++reg [1:0] b_next_state;
++
++wire reset;
++assign reset = ~resetn;
++
++wire need_wait;  //å†™åè¯»å†²çªï¼Œéœ€è¦ç­‰å¾…
++assign need_wait = 1'b0;
++
++/*---------------------------------è¯»è¯·æ±‚çŠ¶æ€æœº-------------------------------------*/
++always @(posedge clk)
++    begin
++        if(reset)
++            ar_cur_state <= AR_START;
++        else
++            ar_cur_state <= ar_next_state;
++    end
++
++always @(*)
++    begin
++        case(ar_cur_state)
++            AR_START:
++                begin
++                    //deal with data_req first
++                    if(rd_data_req && ~need_wait)
++                        ar_next_state = AR_DATA;
++                    else if(rd_inst_req)
++                        ar_next_state = AR_INST;
++                    else
++                        ar_next_state = AR_START;
++                end
++            AR_INST:
++                begin
++                    if(rvalid && rready)
++                        ar_next_state = AR_START;
++                    else
++                        ar_next_state = AR_INST;
++                end
++            AR_DATA:
++                begin
++                    if(rvalid && rready)
++                        ar_next_state = AR_START;
++                    else
++                        ar_next_state = AR_DATA;
++                end
++        endcase
++    end
++
++/*---------------------------------------------------------------------------------*/
++
++/*---------------------------------è¯»å“åº”çŠ¶æ€æœº-------------------------------------*/
++
++always @(posedge clk)
++    begin
++        if(reset)
++            r_cur_state <= R_START;
++        else
++            r_cur_state <= r_next_state;
++    end
++
++always @(*)
++    begin
++        case(r_cur_state)
++            R_START:
++                begin
++                    //deal with data_req first
++                    if(rd_data_req && ~need_wait)
++                        r_next_state = R_DATA;
++                    else if(rd_inst_req)
++                        r_next_state = R_INST;
++                    else
++                        r_next_state = R_START;
++                end
++            R_INST:
++                begin
++                    if(rvalid && rready)
++                        r_next_state = R_START;
++                    else
++                        r_next_state = R_INST;
++                end
++            R_DATA:
++                begin
++                    if(rvalid && rready)
++                        r_next_state = R_START;
++                    else
++                        r_next_state = R_DATA;
++                end
++        endcase
++    end
++
++/*---------------------------------------------------------------------------------*/
++
++/*---------------------------------å†™è¯·æ±‚çŠ¶æ€æœº-------------------------------------*/
++always @(posedge clk)
++    begin
++        if(reset)
++            aw_cur_state <= AW_START;
++        else
++            aw_cur_state <= aw_next_state;
++    end
++
++always @(*)
++    begin
++        case(aw_cur_state)
++            AW_START:
++                begin
++                    if(wr_data_req)
++                        aw_next_state = AW_DATA;
++                    else
++                        aw_next_state = AW_START;
++                end
++            AW_DATA:
++                begin
++                    if(awvalid && awready)
++                        aw_next_state = W_DATA;
++                    else
++                        aw_next_state = AW_DATA;
++                end
++            W_DATA:
++                begin
++                    //if(wvalid && wready)
++                    if(bvalid && bready)
++                        aw_next_state = AW_START;
++                    else
++                        aw_next_state = W_DATA;
++                end
++        endcase
++    end
++
++/*---------------------------------------------------------------------------------*/
++
++/*---------------------------------å†™å“åº”çŠ¶æ€æœº-------------------------------------*/
++always @(posedge clk)
++    begin
++        if(reset)
++            b_cur_state <= B_START;
++        else
++            b_cur_state <= b_next_state;
++    end
++
++always @(*)
++    begin
++        case(b_cur_state)
++            B_START:
++                begin
++                    if(wvalid && wready)
++                        b_next_state = B_DATA;
++                    else
++                        b_next_state = B_START;
++                end
++            B_DATA:
++                begin
++                    if(bvalid && bready)
++                        b_next_state = B_START;
++                    else
++                        b_next_state = B_DATA;
++                end
++        endcase
++    end
++
++/*---------------------------------------------------------------------------------*/
++
++/*-----------------------------------simplify--------------------------------------*/
++wire arid_for_inst;
++wire arid_for_data;
++
++assign arid_for_inst = ~arid[0];      //arid == 4'd0 è¯»æŒ‡
++assign arid_for_data = arid[0];       //arid == 4'd1 è¯»æ•°
++
++wire rd_inst_req;
++wire wr_inst_req;
++wire rd_data_req;
++wire wr_data_req;
++
++//wr --> 0è¯» ; 1å†™
++assign rd_inst_req = inst_req && ~inst_wr;      
++assign wr_inst_req = inst_req && inst_wr;
++assign rd_data_req = data_req && ~data_wr;
++assign wr_data_req = data_req && data_wr;
++
++/*----------------------------------------------------------------------------------*/
++
++/*------------------------------------ar_assign-------------------------------------*/
++reg  [3:0]  arid_reg;
++reg  [31:0] araddr_reg;
++reg  [1:0]  arsize_reg;
++reg         arvalid_reg;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            arid_reg <= 4'd0;
++        else if(ar_cur_state == AR_START && rd_data_req)
++            arid_reg <= 4'd1;   //1 --> å–æ•°
++        else if(ar_cur_state == AR_START && rd_inst_req)
++            arid_reg <= 4'd0;   //0 --> å–æŒ‡
++        /*
++        else if(ar_cur_state == AR_DATA && (arvalid && arready))
++            arid_reg <= 4'd0;
++        */
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            araddr_reg <= 32'd0;
++        else if(ar_cur_state == AR_START && rd_data_req)
++            araddr_reg <= {data_addr[31:2], 2'd0};
++        else if(ar_cur_state == AR_START && rd_inst_req)
++            araddr_reg <= inst_addr;
++        /*
++        else if(ar_cur_state == AR_DATA && (arvalid && arready))
++            araddr_reg <= 32'd0;
++        */
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            arsize_reg <= 2'd0;
++        else if(ar_cur_state == AR_START && rd_data_req)
++            arsize_reg <= data_size;
++        else if(ar_cur_state == AR_START && rd_inst_req)
++            arsize_reg <= inst_size;
++        /*
++        else if(ar_cur_state == AR_DATA && (arvalid && arready))
++            arsize_reg <= 2'd0;
++        */
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            arvalid_reg <= 1'b0;
++        else if(ar_cur_state == AR_START && (rd_inst_req || (rd_data_req && ~need_wait)))
++            arvalid_reg <= 1'b1;
++        else if(arready)
++            arvalid_reg <= 1'b0;
++    end
++
++assign arid    = arid_reg;
++assign araddr  = araddr_reg;
++assign arlen   = 8'b0;
++assign arsize  = arsize_reg;
++assign arburst = 2'b1;
++assign arlock  = 1'b0;
++assign arcache = 4'b0;
++assign arprot  = 3'b0;
++assign arvalid = arvalid_reg;
++
++/*----------------------------------------------------------------------------------*/
++
++/*-------------------------------------r_assign-------------------------------------*/
++reg rready_reg;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            rready_reg <= 1'b0;
++        else if((r_cur_state == R_DATA || r_cur_state == R_INST) && rvalid && rready)
++            rready_reg <= 1'b0;
++        else if((r_cur_state == R_DATA || r_cur_state == R_INST) && rvalid)
++            rready_reg <= 1'b1;
++        
++    end
++
++assign rready = rready_reg;
++
++/*----------------------------------------------------------------------------------*/
++
++/*------------------------------------aw_assign-------------------------------------*/
++reg [31:0]  awaddr_reg;
++reg [2:0]   awsize_reg;
++reg         awvalid_reg;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            awaddr_reg <= 32'd0;
++        else if(aw_cur_state == AW_START && wr_data_req)
++            awaddr_reg <= data_addr;
++        else if(bvalid)
++            awaddr_reg <= 32'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            awsize_reg <= 3'b0;
++        else if(aw_cur_state == AW_START && wr_data_req)
++            awsize_reg <= data_size;
++        else if(bvalid)
++            awsize_reg <= 3'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            awvalid_reg <= 1'b0;
++        else if(aw_cur_state == AW_START && (wr_data_req))
++            awvalid_reg <= 1'b1;
++        else if(awready)
++            awvalid_reg <= 1'b0;
++    end
++
++assign awid     = 4'b1;
++assign awaddr   = awaddr_reg;
++assign awlen    = 8'b0;
++assign awsize   = awsize_reg;
++assign awburst  = 2'b01;
++assign awlock   = 1'b0;
++assign awcache  = 4'b0;
++assign awprot   = 3'b0;
++assign awvalid  = awvalid_reg;
++
++/*----------------------------------------------------------------------------------*/
++
++/*-------------------------------------w_assign-------------------------------------*/
++reg [31:0] wdata_reg;
++reg [3:0]  wstrb_reg;
++reg        wvalid_reg;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            wdata_reg <= 32'b0;
++        else if(aw_cur_state == AW_START && wr_data_req)
++            wdata_reg <= data_wdata;
++        else if(bvalid)
++            wdata_reg <= 32'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            wstrb_reg <= 4'b0;
++        else if(aw_cur_state == AW_START && wr_data_req)
++            wstrb_reg <= data_wstrb;
++        else if(bvalid)
++            wstrb_reg <= 4'b0;
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            wvalid_reg <= 1'b0;
++        else if(aw_cur_state == AW_DATA && (awvalid && awready))
++            wvalid_reg <= 1'b1;
++        else if(wready)
++            wvalid_reg <= 1'b0;
++    end
++
++assign wid      = 4'b1;
++assign wdata    = wdata_reg;
++assign wstrb    = wstrb_reg;
++assign wlast    = 1'b1;
++assign wvalid   = wvalid_reg;
++
++/*----------------------------------------------------------------------------------*/
++
++/*-------------------------------------b_assign-------------------------------------*/
++reg bready_reg;
++
++always @(posedge clk)
++    if(reset)
++        bready_reg <= 1'b0;
++    else if(b_cur_state == B_START && (wvalid && wready))
++        bready_reg <= 1'b1;
++    else if(bvalid)
++        bready_reg <= 1'b0;
++
++assign bready = bready_reg;
++
++/*----------------------------------------------------------------------------------*/
++
++/*---------------------------------------to cpu-------------------------------------*/
++assign inst_addr_ok = ( (ar_cur_state == AR_START) && rd_inst_req && ~rd_data_req)  //deal with rd_data_req first
++                  ||  ( (aw_cur_state == AW_START) && wr_inst_req);
++
++assign data_addr_ok = ( (ar_cur_state == AR_START) && rd_data_req && ~need_wait)
++                  ||  ( (aw_cur_state == AW_START) && wr_data_req);
++
++assign inst_data_ok = ( (r_cur_state == R_INST) && rvalid && rready);
++
++assign data_data_ok = ( (r_cur_state == R_DATA) && rvalid && rready)
++                  ||  ( (aw_cur_state == W_DATA) && bvalid);
++
++reg [31:0] inst_rdata_reg;
++reg [31:0] data_rdata_reg;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            inst_rdata_reg <= 32'b0;
++        else if(r_cur_state == R_INST && arid_for_inst && rvalid)
++            inst_rdata_reg <= rdata;
++        /*  if temp_inst need it , can't clear it
++        else if(r_cur_state == R_START)
++            inst_rdata_reg <= 32'b0;
++        */
++    end
++
++always @(posedge clk)
++    begin
++        if(reset)
++            data_rdata_reg <= 32'b0;
++        else if(r_cur_state == R_DATA && arid_for_data && rvalid)
++            data_rdata_reg <= rdata;
++        /*
++        else if(r_cur_state == R_START)
++            data_rdata_reg <= 32'b0;
++        */
++    end
++
++assign inst_rdata = inst_rdata_reg;
++assign data_rdata = data_rdata_reg;
++
++/*----------------------------------------------------------------------------------*/
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/for_patch/csr_reg.v b/cyt_code/for_patch/csr_reg.v
+index de9949a..eb6c87f 100644
+--- a/cyt_code/for_patch/csr_reg.v
++++ b/cyt_code/for_patch/csr_reg.v
+@@ -1,25 +1,24 @@
+ `include "width.vh"
+-
+ module csr_reg(
+     input                         clk,
+     input                         reset,
+ 
+-    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //¼Ä´æÆ÷ºÅ
++    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //å¯„å­˜å™¨å·
+ 
+-    input                         csr_re,            //¶ÁÊ¹ÄÜ
+-    output             [31:0]     csr_rvalue,        //¶ÁÊı¾İ
++    input                         csr_re,            //è¯»ä½¿èƒ½
++    output             [31:0]     csr_rvalue,        //è¯»æ•°æ®
+     output             [31:0]     ertn_pc,
+     output             [31:0]     ex_entry,
+ 
+-    input                         csr_we,            //Ğ´Ê¹ÄÜ
+-    input              [31:0]     csr_wmask,         //Ğ´ÑÚÂë
+-    input              [31:0]     csr_wvalue,        //Ğ´Êı¾İ
++    input                         csr_we,            //å†™ä½¿èƒ½
++    input              [31:0]     csr_wmask,         //å†™æ©ç 
++    input              [31:0]     csr_wvalue,        //å†™æ•°æ®
+ 
+-    input                         wb_ex,             //Ğ´»Ø¼¶Òì³£
+-    input              [31:0]     wb_pc,             //Òì³£pc
+-    input                         ertn_flush,        //ertnÖ¸ÁîÖ´ĞĞÓĞĞ§ĞÅºÅ
+-    input              [5:0]      wb_ecode,          //Òì³£ÀàĞÍ1¼¶Âë
+-    input              [8:0]      wb_esubcode,       //Òì³£ÀàĞÍ2¼¶Âë
++    input                         wb_ex,             //å†™å›çº§å¼‚å¸¸
++    input              [31:0]     wb_pc,             //å¼‚å¸¸pc
++    input                         ertn_flush,        //ertnæŒ‡ä»¤æ‰§è¡Œæœ‰æ•ˆä¿¡å·
++    input              [5:0]      wb_ecode,          //å¼‚å¸¸ç±»å‹1çº§ç 
++    input              [8:0]      wb_esubcode,       //å¼‚å¸¸ç±»å‹2çº§ç 
+     input              [31:0]     wb_vaddr, 
+     input              [31:0]     coreid_in,
+ 
+@@ -29,7 +28,7 @@ module csr_reg(
+ );
+ 
+ /*
+-¼Ä´æÆ÷ºÅ£º
++å¯„å­˜å™¨å·ï¼š
+ `define CSR_CRMD 0x0
+ `define CSR_PRMD 0x1
+ `define CSR_ECFG 0x4
+@@ -48,17 +47,17 @@ module csr_reg(
+ */
+ 
+ /*
+-CSR·ÖÇø
++CSRåˆ†åŒº
+ */
+ 
+-/*--------------------------µ±Ç°Ä£Ê½ĞÅÏ¢ CRMD-------------------------*/
++/*--------------------------å½“å‰æ¨¡å¼ä¿¡æ¯ CRMD-------------------------*/
+ 
+ 
+-//µ±Ç°ÌØÈ¨µÈ¼¶
++//å½“å‰ç‰¹æƒç­‰çº§
+ /*
+-2'b00: ×î¸ßÌØÈ¨¼¶  2'b11£º×îµÍÌØÈ¨µÈ¼¶
+-´¥·¢ÌØÀıÊ±Ó¦½«plvÉèÎª0£¬È·±£ÏİÈëºó´¦ÓÚÄÚºËÌ¬×î¸ßÌØÈ¨µÈ¼¶
+-µ±Ö´ĞĞERTNÖ¸Áî´ÓÀıÍâ´¦Àí³ÌĞò·µ»ØÊ±£¬½²CSR_PRMD[PPLV] --> CSR_CRMD[PLV]
++2'b00: æœ€é«˜ç‰¹æƒçº§  2'b11ï¼šæœ€ä½ç‰¹æƒç­‰çº§
++è§¦å‘ç‰¹ä¾‹æ—¶åº”å°†plvè®¾ä¸º0ï¼Œç¡®ä¿é™·å…¥åå¤„äºå†…æ ¸æ€æœ€é«˜ç‰¹æƒç­‰çº§
++å½“æ‰§è¡ŒERTNæŒ‡ä»¤ä»ä¾‹å¤–å¤„ç†ç¨‹åºè¿”å›æ—¶ï¼Œè®²CSR_PRMD[PPLV] --> CSR_CRMD[PLV]
+ */
+ reg [1:0] csr_crmd_plv;
+ 
+@@ -75,12 +74,12 @@ always @(posedge clk)
+                          | ~csr_wmask[`CSR_CRMD_PLV] & csr_crmd_plv;
+     end
+ 
+-//µ±Ç°È«¾ÖÖĞ¶ÏÊ¹ÄÜ
++//å½“å‰å…¨å±€ä¸­æ–­ä½¿èƒ½
+ /*
+-1'b1£º¿ÉÖĞ¶Ï    1'b0£ºÆÁ±ÎÖĞ¶Ï
+-µ±´¥·¢ÀıÍâÊ±£¬Ó²¼şÖÃÎª0£¬È·±£ÏİÈëºóÆÁ±ÎÖĞ¶Ï
+-ÀıÍâ´¦Àí³ÌĞò¾ö¶¨ÖØĞÂ¿ªÆôÖĞ¶ÏÏìÓ¦Ê±£¬ÏÔÊ¾Éè1
+-µ±Ö´ĞĞERTNÖ¸Áî´ÓÀıÍâ´¦Àí³ÌĞò·µ»ØÊ±£¬½²CSR_PRMD[IE] --> CSR_CRMD[IE]
++1'b1ï¼šå¯ä¸­æ–­    1'b0ï¼šå±è”½ä¸­æ–­
++å½“è§¦å‘ä¾‹å¤–æ—¶ï¼Œç¡¬ä»¶ç½®ä¸º0ï¼Œç¡®ä¿é™·å…¥åå±è”½ä¸­æ–­
++ä¾‹å¤–å¤„ç†ç¨‹åºå†³å®šé‡æ–°å¼€å¯ä¸­æ–­å“åº”æ—¶ï¼Œæ˜¾ç¤ºè®¾1
++å½“æ‰§è¡ŒERTNæŒ‡ä»¤ä»ä¾‹å¤–å¤„ç†ç¨‹åºè¿”å›æ—¶ï¼Œè®²CSR_PRMD[IE] --> CSR_CRMD[IE]
+ */
+ reg csr_crmd_ie;
+ 
+@@ -89,7 +88,7 @@ always @(posedge clk)
+         if(reset)
+             csr_crmd_ie <= 1'b0;
+         else if(wb_ex)
+-            //½øÈëÖĞ¶Ïºó£¬¹Ø±ÕÖĞ¶ÏÊ¹ÄÜ
++            //è¿›å…¥ä¸­æ–­åï¼Œå…³é—­ä¸­æ–­ä½¿èƒ½
+             csr_crmd_ie <= 1'b0;
+         else if(ertn_flush)
+             csr_crmd_ie <= csr_prmd_pie;
+@@ -98,7 +97,7 @@ always @(posedge clk)
+                         | ~csr_wmask[`CSR_CRMD_IE] & csr_crmd_ie;
+     end
+ 
+-//Ö±½ÓµØÖ··­ÒëÊ¹ÄÜ --> ³õÊ¼»¯ÖÃÎª1
++//ç›´æ¥åœ°å€ç¿»è¯‘ä½¿èƒ½ --> åˆå§‹åŒ–ç½®ä¸º1
+ reg csr_crmd_da;
+ 
+ always @(posedge clk)
+@@ -107,7 +106,7 @@ always @(posedge clk)
+             csr_crmd_da <= 1'b1;
+     end
+ 
+-//ÔİÎ´Ê¹ÓÃ
++//æš‚æœªä½¿ç”¨
+ reg csr_crmd_pg;
+ reg [1:0] csr_crmd_datf;
+ reg [1:0] csr_crmd_datm;
+@@ -115,7 +114,7 @@ reg [22:0] csr_crmd_zero;
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*--------------------------ÀıÍâÇ°Ä£Ê½ĞÅÏ¢ PRMD-------------------------*/
++/*--------------------------ä¾‹å¤–å‰æ¨¡å¼ä¿¡æ¯ PRMD-------------------------*/
+ 
+ reg [1:0] csr_prmd_pplv;
+ reg csr_prmd_pie;
+@@ -136,18 +135,18 @@ always @(posedge clk)
+             end
+     end
+ 
+-//ÔİÎ´Ê¹ÓÃµÄ
++//æš‚æœªä½¿ç”¨çš„
+ reg [28:0] reg_prmd_zero;
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*--------------------------ÀıÍâ¿ØÖÆ ECFG-------------------------------*/
++/*--------------------------ä¾‹å¤–æ§åˆ¶ ECFG-------------------------------*/
+ 
+-//¿ØÖÆ¸÷ÖĞ¶ÏµÄ¾Ö²¿Ê¹ÄÜÎ»
++//æ§åˆ¶å„ä¸­æ–­çš„å±€éƒ¨ä½¿èƒ½ä½
+ /*
+-1'b1£º¿ÉÖĞ¶Ï    1'b0£ºÆÁ±ÎÖĞ¶Ï
+-µÍ10Î»¾Ö²¿ÖĞ¶ÏÊ¹ÄÜÎ»ÓëCSR_ESTATÖĞIS[9:0]Óò¼ÇÂ¼µÄ10¸öÖĞ¶ÏÔ´Ò»Ò»¶ÔÓ¦
+-12:11Î»¾Ö²¿ÖĞ¶ÏÊ¹ÄÜÎ»ÓëCSR_ESTATÖĞIS[12:11]Óò¼ÇÂ¼µÄ2¸öÖĞ¶ÏÔ´Ò»Ò»¶ÔÓ¦
++1'b1ï¼šå¯ä¸­æ–­    1'b0ï¼šå±è”½ä¸­æ–­
++ä½10ä½å±€éƒ¨ä¸­æ–­ä½¿èƒ½ä½ä¸CSR_ESTATä¸­IS[9:0]åŸŸè®°å½•çš„10ä¸ªä¸­æ–­æºä¸€ä¸€å¯¹åº”
++12:11ä½å±€éƒ¨ä¸­æ–­ä½¿èƒ½ä½ä¸CSR_ESTATä¸­IS[12:11]åŸŸè®°å½•çš„2ä¸ªä¸­æ–­æºä¸€ä¸€å¯¹åº”
+ */
+ reg [12:0] csr_ecfg_lie;
+ 
+@@ -160,51 +159,51 @@ always @(posedge clk)
+                          | ~csr_wmask[`CSR_ECFG_LIE] & csr_ecfg_lie;
+     end
+ 
+-//ÔİÎ´Ê¹ÓÃµÄ
++//æš‚æœªä½¿ç”¨çš„
+ reg [18:0] csr_ecgh_zero;
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*--------------------------ÀıÍâ×´Ì¬ ESTAT-------------------------------*/
++/*--------------------------ä¾‹å¤–çŠ¶æ€ ESTAT-------------------------------*/
+ 
+-//2¸öÈíÖĞ¶Ï×´Ì¬Î»£¬ 0ºÍ1±ÈÌØ·Ö±ğ¶ÔÓ¦SWI0 ºÍ SWI1
+-//8¸öÓ²ÖĞ¶Ï×´Ì¬Î»£¬ 2ÖÁ9±ÈÌØ·Ö±´¶ÔÓ¦HWI0 µ½ HWI7
+-//1¸ö±£ÁôÓò
+-//µÚ11Î»¶ÔÓ¦¶¨Ê±Æ÷ÖĞ¶ÏTIµÄ×´Ì¬Î»
+-//µÚ12Î»¶ÔÓ¦ºË¼äÖĞ¶Ï
++//2ä¸ªè½¯ä¸­æ–­çŠ¶æ€ä½ï¼Œ 0å’Œ1æ¯”ç‰¹åˆ†åˆ«å¯¹åº”SWI0 å’Œ SWI1
++//8ä¸ªç¡¬ä¸­æ–­çŠ¶æ€ä½ï¼Œ 2è‡³9æ¯”ç‰¹åˆ†è´å¯¹åº”HWI0 åˆ° HWI7
++//1ä¸ªä¿ç•™åŸŸ
++//ç¬¬11ä½å¯¹åº”å®šæ—¶å™¨ä¸­æ–­TIçš„çŠ¶æ€ä½
++//ç¬¬12ä½å¯¹åº”æ ¸é—´ä¸­æ–­
+ reg [12:0] csr_estat_is;
+ 
+ always @(posedge clk)
+     begin
+-        //ÈíÖĞ¶ÏÎ» -- RW
++        //è½¯ä¸­æ–­ä½ -- RW
+         if(reset)
+             csr_estat_is[`CSR_ESTAT_IS_SOFT] <= 2'b0;
+         else if(csr_we && csr_num == `CSR_ESTAT)
+             csr_estat_is[`CSR_ESTAT_IS_SOFT] <= csr_wmask[`CSR_ESTAT_IS_SOFT] & csr_wvalue[`CSR_ESTAT_IS_SOFT]
+                               | ~csr_wmask[`CSR_ESTAT_IS_SOFT] & csr_estat_is[`CSR_ESTAT_IS_SOFT] ;
+ 
+-        //Ó²ÖĞ¶ÏÎ» -- R
++        //ç¡¬ä¸­æ–­ä½ -- R
+         csr_estat_is[`CSR_ESTAT_IS_HARD] <= hw_int_in[7:0];
+ 
+-        //±£ÁôÎ»
++        //ä¿ç•™ä½
+         csr_estat_is[`CSR_ESTAT_IS_LEFT1] <= 1'b0;
+ 
+-        //Ê±ÖÓÖĞ¶Ï -- R µ«ÊÇĞ´CSR_TICLR_CLR¿É¸Ä±äCSR_ESTAT_IS_TI
++        //æ—¶é’Ÿä¸­æ–­ -- R ä½†æ˜¯å†™CSR_TICLR_CLRå¯æ”¹å˜CSR_ESTAT_IS_TI
+         if(timer_cnt[31:0] == 32'b0)
+             csr_estat_is[`CSR_ESTAT_IS_TI] <= 1'b1;
+         else if(csr_we && csr_num == `CSR_TICLR && csr_wmask[`CSR_TICLR_CLR]
+                 && csr_wvalue[`CSR_TICLR_CLR])
+-            //¶ÔCSR_TICLR¶¨Ê±ÖĞ¶ÏÇå³ı¼Ä´æÆ÷µÄCLRÎ»Ğ´1 ´ú±í Çå³ıÊ±ÖÓÖĞ¶Ï±ê¼Ç
++            //å¯¹CSR_TICLRå®šæ—¶ä¸­æ–­æ¸…é™¤å¯„å­˜å™¨çš„CLRä½å†™1 ä»£è¡¨ æ¸…é™¤æ—¶é’Ÿä¸­æ–­æ ‡è®°
+             csr_estat_is[`CSR_ESTAT_IS_TI] <= 1'b0;
+ 
+-        //ºË¼äÖĞ¶Ï±ê¼Ç
++        //æ ¸é—´ä¸­æ–­æ ‡è®°
+         csr_estat_is[`CSR_ESTAT_IS_IPI] <= ipi_int_in;
+     end
+ 
+-//±£ÁôÎ»
++//ä¿ç•™ä½
+ reg [2:0] csr_estat_left;
+ 
+-//ÖĞ¶ÏÀàĞÍ1¼¶2¼¶±àÂë
++//ä¸­æ–­ç±»å‹1çº§2çº§ç¼–ç 
+ reg [5:0] csr_estat_ecode;
+ reg [8:0] csr_estat_esubcode;
+ 
+@@ -217,14 +216,14 @@ always @(posedge clk)
+             end
+     end
+ 
+-//ÔİÎ´Ê¹ÓÃµÄ
++//æš‚æœªä½¿ç”¨çš„
+ reg csr_estat_zero;
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------ÀıÍâ·µ»ØµØÖ· ERA-------------------------------*/
++/*-----------------------ä¾‹å¤–è¿”å›åœ°å€ ERA-------------------------------*/
+ 
+-//´¥·¢ÀıÍâµÄÖ¸ÁîPC½«±»¼ÇÂ¼ÔÚEPC¼Ä´æÆ÷
++//è§¦å‘ä¾‹å¤–çš„æŒ‡ä»¤PCå°†è¢«è®°å½•åœ¨EPCå¯„å­˜å™¨
+ reg [31:0] csr_era_pc;
+ 
+ always @(posedge clk)
+@@ -238,16 +237,16 @@ always @(posedge clk)
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------³ö´íĞéµØÖ· BADV-------------------------------*/
++/*-----------------------å‡ºé”™è™šåœ°å€ BADV-------------------------------*/
+ 
+-//´¥·¢µØÖ·´íÎóÏà¹ØÀıÍâÊ±£¬¼ÇÂ¼³ö´íµÄĞéµØÖ·
++//è§¦å‘åœ°å€é”™è¯¯ç›¸å…³ä¾‹å¤–æ—¶ï¼Œè®°å½•å‡ºé”™çš„è™šåœ°å€
+ reg [31:0] csr_badv_vaddr;
+ 
+ wire wb_ex_addr_err;
+ /*
+-ECODE_ADEF: È¡ÖµµØÖ·´íÀıÍâ
+-ECODE_ADEM£º·Ã´æÖ¸ÁîµØÖ·´íÀıÍâ
+-ECODE_ALE£ºµØÖ··Ç¶ÔÆëÀıÍâ
++ECODE_ADEF: å–å€¼åœ°å€é”™ä¾‹å¤–
++ECODE_ADEMï¼šè®¿å­˜æŒ‡ä»¤åœ°å€é”™ä¾‹å¤–
++ECODE_ALEï¼šåœ°å€éå¯¹é½ä¾‹å¤–
+ */
+ assign wb_ex_addr_err = (wb_ecode == `ECODE_ADE) || (wb_ecode == `ECODE_ALE);
+ 
+@@ -260,10 +259,10 @@ always @(posedge clk)
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------ÀıÍâÈë¿ÚµØÖ· EENTRY-------------------------------*/
++/*-----------------------ä¾‹å¤–å…¥å£åœ°å€ EENTRY-------------------------------*/
+ 
+-//EENTRYÓÃÓÚÅäÖÃ³ıTLB³äÌîÀıÍâÖ®ÍâµÄÀıÍâºÍÖĞ¶ÏµÄÈë¿ÚµØÖ·
+-//Ö»ÄÜÓÉCSRÖ¸Áî¸üĞÂ
++//EENTRYç”¨äºé…ç½®é™¤TLBå……å¡«ä¾‹å¤–ä¹‹å¤–çš„ä¾‹å¤–å’Œä¸­æ–­çš„å…¥å£åœ°å€
++//åªèƒ½ç”±CSRæŒ‡ä»¤æ›´æ–°
+ reg [5:0] csr_eentry_zero;
+ reg [25:0] csr_eentry_va;
+ 
+@@ -281,7 +280,7 @@ always @(posedge clk)
+     end
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------ÁÙÊ±¼Ä´æÆ÷ SAVE0-3-------------------------------*/
++/*-----------------------ä¸´æ—¶å¯„å­˜å™¨ SAVE0-3-------------------------------*/
+ 
+ reg [31:0] csr_save0_data;
+ reg [31:0] csr_save1_data;
+@@ -309,9 +308,9 @@ always @(posedge clk)
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------¶¨Ê±Æ÷±àºÅ¼Ä´æÆ÷ TID-------------------------------*/
++/*-----------------------å®šæ—¶å™¨ç¼–å·å¯„å­˜å™¨ TID-------------------------------*/
+ 
+-//¶¨Ê±Æ÷±àºÅ¼Ä´æÆ÷
++//å®šæ—¶å™¨ç¼–å·å¯„å­˜å™¨
+ reg [31:0] csr_tid_tid;
+ 
+ always @(posedge clk)
+@@ -325,13 +324,13 @@ always @(posedge clk)
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------¶¨Ê±Æ÷ÅäÖÃ¼Ä´æÆ÷ TCFG-------------------------------*/
++/*-----------------------å®šæ—¶å™¨é…ç½®å¯„å­˜å™¨ TCFG-------------------------------*/
+ 
+-//¶¨Ê±Æ÷Ê¹ÄÜÎ»£¬enÎª1Ê±¶¨Ê±Æ÷²Å»á½øĞĞµ¹¼ÆÊ±×Ô¼ì£¬²¢ÔÚ¼õÎª0Ê±ÖÃÆğ¶¨Ê±ÖĞ¶ÏĞÅºÅ
++//å®šæ—¶å™¨ä½¿èƒ½ä½ï¼Œenä¸º1æ—¶å®šæ—¶å™¨æ‰ä¼šè¿›è¡Œå€’è®¡æ—¶è‡ªæ£€ï¼Œå¹¶åœ¨å‡ä¸º0æ—¶ç½®èµ·å®šæ—¶ä¸­æ–­ä¿¡å·
+ reg csr_tcfg_en;
+-//¶¨Ê±Æ÷Ñ­»·Ä£Ê½¿ØÖÆÎ»£¬Îª1Ê±»áÑ­»·
++//å®šæ—¶å™¨å¾ªç¯æ¨¡å¼æ§åˆ¶ä½ï¼Œä¸º1æ—¶ä¼šå¾ªç¯
+ reg csr_tcfg_periodic;
+-//¶¨Ê±Æ÷µ¹¼ÆÊ±×Ô¼õ¼ÆÊıµÄ³õÊ¼Öµ
++//å®šæ—¶å™¨å€’è®¡æ—¶è‡ªå‡è®¡æ•°çš„åˆå§‹å€¼
+ reg [29:0] csr_tcfg_initval;
+ 
+ always @(posedge clk)
+@@ -353,7 +352,7 @@ always @(posedge clk)
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------TVALµÄTimeValÓò-------------------------------*/
++/*-----------------------TVALçš„TimeValåŸŸ-------------------------------*/
+ 
+ wire [31:0] tcfg_cur_value;
+ wire [31:0] tcfg_next_value;
+@@ -361,23 +360,23 @@ wire [31:0] csr_tval;
+ reg  [31:0] timer_cnt;
+ 
+ /*
+-ÕâÀïÓÃÁ½¸öwireÀàĞÍĞÅºÅ¶¨Òåcur_tcfg ºÍ next_tcfg
+-ÊÇÎªÁËÄÜÔÚµ±Èí¼ş¿ªÆôtimerµÄÊ¹ÄÜµÄÍ¬Ê±·¢Æğtimer_cntµÄ¸üĞÂ²Ù×÷
+-¼´ÔÚÏÂÃæµÄÊ±ĞòÂß¼­ÖĞµÄ
++è¿™é‡Œç”¨ä¸¤ä¸ªwireç±»å‹ä¿¡å·å®šä¹‰cur_tcfg å’Œ next_tcfg
++æ˜¯ä¸ºäº†èƒ½åœ¨å½“è½¯ä»¶å¼€å¯timerçš„ä½¿èƒ½çš„åŒæ—¶å‘èµ·timer_cntçš„æ›´æ–°æ“ä½œ
++å³åœ¨ä¸‹é¢çš„æ—¶åºé€»è¾‘ä¸­çš„
+         else if(csr_we && csr_num == `CSR_TCFG && tcfg_next_value[`CSR_TCFG_EN])
+             timer_cnt <= {tcfg_next_value[`CSR_TCFG_INITVAL], 2'b0};
+-        ½«´ËÊ±Ğ´ÈëµÄtimerÅäÖÃ¼Ä´æÆ÷µÄ¶¨Ê±Æ÷³õÊ¼Öµ¸üĞÂµ½timer_cntÖĞ
++        å°†æ­¤æ—¶å†™å…¥çš„timeré…ç½®å¯„å­˜å™¨çš„å®šæ—¶å™¨åˆå§‹å€¼æ›´æ–°åˆ°timer_cntä¸­
+ 
+-ÒòÎªÊÇÔÚÈí¼şĞ´TCFGµÄÍ¬Ê±¸üĞÂtimer£¬
+-ËùÒÔÒª¿´µ±Ç°Ğ´ÈëTCFG¼Ä´æÆ÷µÄÖµ(next_value)£¬¶ø²»ÊÇÓÃcur_value
++å› ä¸ºæ˜¯åœ¨è½¯ä»¶å†™TCFGçš„åŒæ—¶æ›´æ–°timerï¼Œ
++æ‰€ä»¥è¦çœ‹å½“å‰å†™å…¥TCFGå¯„å­˜å™¨çš„å€¼(next_value)ï¼Œè€Œä¸æ˜¯ç”¨cur_value
+ */
+ 
+ /*
+-µ±timer_cnt¼õµ½È«0ÇÒ¶¨Ê±Æ÷²»ÊÇÖÜÆÚĞÔ¹¤×÷Ä£Ê½Çé¿öÏÂ¡£
+-timer_cnt¼ÌĞø¼õ1±ä³É32'hffffffff,Ö®ºóÓ¦µ±Í£Ö¹¼´Ê¹£¬
+-ËùÒÔtimer_cnt×Ô¼õµÄÌõ¼ş°üº¬timer_cnt!=32'hffffffff
++å½“timer_cntå‡åˆ°å…¨0ä¸”å®šæ—¶å™¨ä¸æ˜¯å‘¨æœŸæ€§å·¥ä½œæ¨¡å¼æƒ…å†µä¸‹ã€‚
++timer_cntç»§ç»­å‡1å˜æˆ32'hffffffff,ä¹‹ååº”å½“åœæ­¢å³ä½¿ï¼Œ
++æ‰€ä»¥timer_cntè‡ªå‡çš„æ¡ä»¶åŒ…å«timer_cnt!=32'hffffffff
+ 
+-ÖÜÆÚĞÔ¹¤×÷Ä£Ê½ÏÂ£¬¾ÍÖØÖÃÎª{csr_tcfg_initval, 2'b0}
++å‘¨æœŸæ€§å·¥ä½œæ¨¡å¼ä¸‹ï¼Œå°±é‡ç½®ä¸º{csr_tcfg_initval, 2'b0}
+ */
+ 
+ assign tcfg_cur_value = {csr_tcfg_initval, csr_tcfg_periodic, csr_tcfg_en};
+@@ -393,7 +392,7 @@ always @(posedge clk)
+         else if(csr_tcfg_en && timer_cnt!=32'hffffffff)
+             begin
+                 if(timer_cnt[31:0]==32'b0 && csr_tcfg_periodic)
+-                    //Ñ­»·¼ÆÊ±
++                    //å¾ªç¯è®¡æ—¶
+                     timer_cnt <= {csr_tcfg_initval, 2'b0};
+                 else
+                     timer_cnt <= timer_cnt - 1'b1;
+@@ -404,11 +403,11 @@ assign csr_tval = timer_cnt[31:0];
+ 
+ /*---------------------------------------------------------------------*/
+ 
+-/*-----------------------TICLRµÄCLRÓò----------------------------------*/
++/*-----------------------TICLRçš„CLRåŸŸ----------------------------------*/
+ 
+-//Èí¼şÍ¨¹ı¶ÔTICLR¼Ä´æÆ÷Î»0Ğ´1À´Çå³ı¶¨Ê±Æ÷ÖÃÆğµÄ¶¨Ê±ÖĞ¶ÏĞÅºÅ
+-//CLRÓòµÄ¶ÁĞ´ÊôĞÔÎ»W1,ÒâÎ¶×ÅÈí¼ş¶ÔËüĞ´1²Å»á²úÉúÖ´ĞĞĞ§¹û£¬Ö´ĞĞĞ§¹û
+-//¾ßÌåÌåÏÖÔÚTCFG_ENÉÏ£¬µ«CLRÓòµÄÖµÊµ¼ÊÉÏ²»±ä£¬ºãÎª0
++//è½¯ä»¶é€šè¿‡å¯¹TICLRå¯„å­˜å™¨ä½0å†™1æ¥æ¸…é™¤å®šæ—¶å™¨ç½®èµ·çš„å®šæ—¶ä¸­æ–­ä¿¡å·
++//CLRåŸŸçš„è¯»å†™å±æ€§ä½W1,æ„å‘³ç€è½¯ä»¶å¯¹å®ƒå†™1æ‰ä¼šäº§ç”Ÿæ‰§è¡Œæ•ˆæœï¼Œæ‰§è¡Œæ•ˆæœ
++//å…·ä½“ä½“ç°åœ¨TCFG_ENä¸Šï¼Œä½†CLRåŸŸçš„å€¼å®é™…ä¸Šä¸å˜ï¼Œæ’ä¸º0
+ wire csr_ticlr_clr;
+ assign csr_ticlr_clr = 1'b0;
+ 
+diff --git a/cyt_code/for_patch/mycpu.v b/cyt_code/for_patch/mycpu.v
+new file mode 100644
+index 0000000..75100e9
+--- /dev/null
++++ b/cyt_code/for_patch/mycpu.v
+@@ -0,0 +1,320 @@
++`include "width.vh"
++/*
++`include "stage1_IF.v"
++`include "stage2_ID.v"
++`include "stage3_EX.v"
++`include "stage4_MEM.v"
++`include "stage5_WB.v"
++*/
++
++module mycpu(
++    input  wire        clk,
++    input  wire        resetn,
++    // inst sram interface
++
++    output wire        inst_sram_req,
++    output wire        inst_sram_wr,
++    output wire [1:0]  inst_sram_size,
++    output wire [3:0]  inst_sram_wstrb,   
++    output wire [31:0] inst_sram_addr,
++    output wire [31:0] inst_sram_wdata,
++    input  wire        inst_sram_addr_ok,
++    input  wire        inst_sram_data_ok,
++    input  wire [31:0] inst_sram_rdata,
++    // data sram interface
++
++    output wire        data_sram_req,
++    output wire        data_sram_wr,
++    output wire [1:0]  data_sram_size,
++    output wire [3:0]  data_sram_wstrb,
++    output wire [31:0] data_sram_addr,
++    output wire [31:0] data_sram_wdata,
++    input  wire        data_sram_addr_ok,
++    input  wire        data_sram_data_ok,
++    input  wire [31:0] data_sram_rdata,
++    // trace debug interface
++    output wire [31:0] debug_wb_pc,
++    output wire [ 3:0] debug_wb_rf_we,
++    output wire [ 4:0] debug_wb_rf_wnum,
++    output wire [31:0] debug_wb_rf_wdata
++);
++wire         reset;
++assign reset = ~resetn;
++
++wire [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus;
++wire ds_allow_in;
++wire fs_to_ds_valid;
++wire [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus;
++wire es_allow_in;
++wire ds_to_es_valid;
++wire [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus;
++wire ms_allow_in;
++wire es_to_ms_valid;
++wire [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus;
++wire ws_allow_in;
++wire ms_to_ws_valid;
++wire [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
++
++wire [`WIDTH_BR_BUS -1:0] br_bus;
++wire [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus;
++wire [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus;
++
++//task12 -- from ms to es --> help judge store
++wire if_ms_ex;
++
++//task12,13 add
++wire [`WIDTH_CSR_NUM-1:0] csr_num;
++wire                      csr_re;
++wire [31:0]               csr_rvalue;
++wire [31:0]               ertn_pc;
++wire [31:0]               ex_entry;
++
++wire                      csr_we;
++wire [31:0]               csr_wvalue;
++wire [31:0]               csr_wmask;
++
++wire                      wb_ex;
++wire [31:0]               wb_pc; 
++wire                      ertn_flush;
++wire [5:0]                wb_ecode;
++wire [8:0]                wb_esubcode;
++wire [31:0]               wb_vaddr;
++wire [31:0]               coreid_in;
++
++wire                      has_int;
++wire [7:0]                hw_int_in = 8'b0;
++wire                      ipi_int_in = 1'b0;
++
++//global timer counter (64bit)
++reg [63:0] global_time_cnt;
++
++always @(posedge clk)
++    begin
++        if(reset)
++            global_time_cnt <= 0;
++        else if(global_time_cnt == 64'hffffffffffffffff)
++            global_time_cnt <= 0;
++        else
++            global_time_cnt <= global_time_cnt + 1'b1;
++    end
++
++//task13
++/*
++ä¸ºCPUå¢åŠ å–æŒ‡åœ°å€é”™(ADEF)ã€åœ°å€éå¯¹é½(ALE)ã€æ–­ç‚¹(BRK)å’ŒæŒ‡ä»¤ä¸å­˜åœ¨(INE)å¼‚å¸¸çš„æ”¯æŒ
++*/
++
++/*---------------------------FETCH--------------------------*/
++
++stage1_IF fetch(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush),
++    .ertn_pc            (ertn_pc),
++    .ex_entry           (ex_entry),
++    .wb_ex              (wb_ex),
++
++    .ds_allow_in        (ds_allow_in),
++    .br_bus             (br_bus),
++    .fs_to_ds_valid     (fs_to_ds_valid),
++    .fs_to_ds_bus       (fs_to_ds_bus),
++
++    .inst_sram_req      (inst_sram_req),
++    .inst_sram_wr       (inst_sram_wr),
++    .inst_sram_size     (inst_sram_size),
++    .inst_sram_wstrb    (inst_sram_wstrb),
++    .inst_sram_addr     (inst_sram_addr),
++    .inst_sram_wdata    (inst_sram_wdata),
++    .inst_sram_addr_ok  (inst_sram_addr_ok),
++    .inst_sram_data_ok  (inst_sram_data_ok),
++    .inst_sram_rdata    (inst_sram_rdata)
++);
++
++/*----------------------------------------------------------*/
++
++
++/*---------------------------DECODE--------------------------*/
++
++stage2_ID decode(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush), 
++    .has_int            (has_int),
++    .wb_ex              (wb_ex),
++
++    .es_allow_in        (es_allow_in),
++    .ds_allow_in        (ds_allow_in),
++
++    .fs_to_ds_valid     (fs_to_ds_valid),
++    .ds_to_es_valid     (ds_to_es_valid),
++
++    .fs_to_ds_bus       (fs_to_ds_bus),
++    .ds_to_es_bus       (ds_to_es_bus),
++
++    .ws_to_ds_bus       (ws_to_ds_bus),
++    .br_bus             (br_bus),
++
++    .es_to_ds_bus       (es_to_ds_bus),
++    .ms_to_ds_bus       (ms_to_ds_bus),
++
++    .data_sram_data_ok  (data_sram_data_ok)
++);
++
++/*----------------------------------------------------------*/
++
++
++/*---------------------------EXCUTE-------------------------*/
++
++stage3_EX ex(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush),
++    .wb_ex              (wb_ex),
++
++    .ms_allow_in        (ms_allow_in),
++    .es_allow_in        (es_allow_in),
++
++    .ds_to_es_valid     (ds_to_es_valid),
++    .es_to_ms_valid     (es_to_ms_valid),
++
++    .ds_to_es_bus       (ds_to_es_bus),
++    .es_to_ms_bus       (es_to_ms_bus),
++    .es_to_ds_bus       (es_to_ds_bus),
++    .if_ms_ex      (if_ms_ex),
++
++    .data_sram_req      (data_sram_req),
++    .data_sram_wr       (data_sram_wr),
++    .data_sram_size     (data_sram_size),
++    .data_sram_wstrb    (data_sram_wstrb),
++    .data_sram_addr     (data_sram_addr),
++    .data_sram_wdata    (data_sram_wdata),
++
++    .data_sram_addr_ok  (data_sram_addr_ok),
++    .data_sram_data_ok  (data_sram_data_ok),
++
++    .global_time_cnt    (global_time_cnt)
++);
++
++/*----------------------------------------------------------*/
++
++/*---------------------------MEM----------------------------*/
++
++stage4_MEM mem(
++    .clk                (clk),
++    .reset              (reset),
++    .ertn_flush         (ertn_flush),
++    .wb_ex              (wb_ex),
++
++    .ws_allow_in        (ws_allow_in),
++    .ms_allow_in        (ms_allow_in),
++
++    .es_to_ms_valid     (es_to_ms_valid),
++    .ms_to_ws_valid     (ms_to_ws_valid),
++
++    .es_to_ms_bus       (es_to_ms_bus),
++    .ms_to_ws_bus       (ms_to_ws_bus),
++    .ms_to_ds_bus       (ms_to_ds_bus),
++    .if_ms_ex           (if_ms_ex),
++
++    .data_sram_data_ok  (data_sram_data_ok),
++    .data_sram_rdata    (data_sram_rdata)
++);
++
++/*----------------------------------------------------------*/
++
++/*---------------------------WBACK--------------------------*/
++
++stage5_WB wb(
++    .clk                (clk),
++    .reset              (reset),
++
++    .ws_allow_in        (ws_allow_in),
++
++    .ms_to_ws_valid     (ms_to_ws_valid),
++
++    .ms_to_ws_bus       (ms_to_ws_bus),
++    .ws_to_ds_bus       (ws_to_ds_bus),
++
++    .debug_wb_pc        (debug_wb_pc),
++    .debug_wb_rf_we     (debug_wb_rf_we),
++    .debug_wb_rf_wnum   (debug_wb_rf_wnum),
++    .debug_wb_rf_wdata  (debug_wb_rf_wdata),
++
++    //task12 add
++    .csr_num            (csr_num),
++    .csr_re             (csr_re),
++    .csr_rvalue         (csr_rvalue),
++    .csr_we             (csr_we),
++    .csr_wvalue         (csr_wvalue),
++    .csr_wmask          (csr_wmask),
++    .ertn_flush         (ertn_flush),
++    .wb_ex              (wb_ex),
++    .wb_pc              (wb_pc),
++    .wb_ecode           (wb_ecode),
++    .wb_esubcode        (wb_esubcode),
++    .wb_vaddr           (wb_vaddr)
++);
++
++/*----------------------------------------------------------*/
++
++/*
++module csr_reg(
++    input                         clk,
++    input                         reset,
++
++    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //å¯„å­˜å™¨å·
++
++    input                         csr_re,            //è¯»ä½¿èƒ½
++    output             [31:0]     csr_rvalue,        //è¯»æ•°æ®
++    output             [31:0]     ertn_pc,
++    output             [31:0]     ex_entry,
++
++    input                         csr_we,            //å†™ä½¿èƒ½
++    input              [31:0]     csr_wmask,         //å†™æ©ç 
++    input              [31:0]     csr_wvalue,        //å†™æ•°æ®
++
++    input                         wb_ex,             //å†™å›çº§å¼‚å¸¸
++    input              [31:0]     wb_pc,             //å¼‚å¸¸pc
++    input                         ertn_flush,        //ertnæŒ‡ä»¤æ‰§è¡Œæœ‰æ•ˆä¿¡å·
++    input              [5:0]      wb_ecode,          //å¼‚å¸¸ç±»å‹1çº§ç 
++    input              [8:0]      wb_esubcode,       //å¼‚å¸¸ç±»å‹2çº§ç 
++    input              [31:0]     wb_vaddr, 
++    input              [31:0]     coreid_in,
++
++    output                        has_int,
++    input              [7:0]      hw_int_in,
++    input                         ipi_int_in
++);
++*/
++
++/*---------------------------csr_reg--------------------------*/
++csr_reg cr(
++    .clk                (clk),
++    .reset              (reset),
++
++    .csr_num            (csr_num),
++    
++    .csr_re             (csr_re),
++    .csr_rvalue         (csr_rvalue),
++    .ertn_pc            (ertn_pc),
++    .ex_entry           (ex_entry),
++
++    .csr_we             (csr_we),
++    .csr_wmask          (csr_wmask),
++    .csr_wvalue         (csr_wvalue),
++
++    .wb_ex              (wb_ex),
++    .wb_pc              (wb_pc),
++    .ertn_flush         (ertn_flush),
++    .wb_ecode           (wb_ecode),
++    .wb_esubcode        (wb_esubcode), 
++    .wb_vaddr           (wb_vaddr),
++    .coreid_in          (coreid_in),
++
++    .has_int            (has_int),
++    .hw_int_in          (hw_int_in),
++    .ipi_int_in         (ipi_int_in)
++);
++
++/*------------------------------------------------------------*/
++
++endmodule
+\ No newline at end of file
+diff --git a/cyt_code/for_patch/mycpu_top.v b/cyt_code/for_patch/mycpu_top.v
+index 77cb9f2..007987a 100644
+--- a/cyt_code/for_patch/mycpu_top.v
++++ b/cyt_code/for_patch/mycpu_top.v
+@@ -1,320 +1,239 @@
+-`include "width.vh"
+-/*
+-`include "stage1_IF.v"
+-`include "stage2_ID.v"
+-`include "stage3_EX.v"
+-`include "stage4_MEM.v"
+-`include "stage5_WB.v"
+-*/
+-
+-module mycpu_top(
+-    input  wire        clk,
+-    input  wire        resetn,
+-    // inst sram interface
+-
+-    output wire        inst_sram_req,
+-    output wire        inst_sram_wr,
+-    output wire [1:0]  inst_sram_size,
+-    output wire [3:0]  inst_sram_wstrb,   
+-    output wire [31:0] inst_sram_addr,
+-    output wire [31:0] inst_sram_wdata,
+-    input  wire        inst_sram_addr_ok,
+-    input  wire        inst_sram_data_ok,
+-    input  wire [31:0] inst_sram_rdata,
+-    // data sram interface
+-
+-    output wire        data_sram_req,
+-    output wire        data_sram_wr,
+-    output wire [1:0]  data_sram_size,
+-    output wire [3:0]  data_sram_wstrb,
+-    output wire [31:0] data_sram_addr,
+-    output wire [31:0] data_sram_wdata,
+-    input  wire        data_sram_addr_ok,
+-    input  wire        data_sram_data_ok,
+-    input  wire [31:0] data_sram_rdata,
+-    // trace debug interface
+-    output wire [31:0] debug_wb_pc,
+-    output wire [ 3:0] debug_wb_rf_we,
+-    output wire [ 4:0] debug_wb_rf_wnum,
+-    output wire [31:0] debug_wb_rf_wdata
++/*  from soc_lite_top.v
++mycpu_top u_cpu(
++    .aclk      (cpu_clk       ),
++    .aresetn   (cpu_resetn    ),   //low active
++
++    .arid      (cpu_arid      ),
++    .araddr    (cpu_araddr    ),
++    .arlen     (cpu_arlen     ),
++    .arsize    (cpu_arsize    ),
++    .arburst   (cpu_arburst   ),
++    .arlock    (cpu_arlock    ),
++    .arcache   (cpu_arcache   ),
++    .arprot    (cpu_arprot    ),
++    .arvalid   (cpu_arvalid   ),
++    .arready   (cpu_arready   ),
++                
++    .rid       (cpu_rid       ),
++    .rdata     (cpu_rdata     ),
++    .rresp     (cpu_rresp     ),
++    .rlast     (cpu_rlast     ),
++    .rvalid    (cpu_rvalid    ),
++    .rready    (cpu_rready    ),
++               
++    .awid      (cpu_awid      ),
++    .awaddr    (cpu_awaddr    ),
++    .awlen     (cpu_awlen     ),
++    .awsize    (cpu_awsize    ),
++    .awburst   (cpu_awburst   ),
++    .awlock    (cpu_awlock    ),
++    .awcache   (cpu_awcache   ),
++    .awprot    (cpu_awprot    ),
++    .awvalid   (cpu_awvalid   ),
++    .awready   (cpu_awready   ),
++    
++    .wid       (cpu_wid       ),
++    .wdata     (cpu_wdata     ),
++    .wstrb     (cpu_wstrb     ),
++    .wlast     (cpu_wlast     ),
++    .wvalid    (cpu_wvalid    ),
++    .wready    (cpu_wready    ),
++    
++    .bid       (cpu_bid       ),
++    .bresp     (cpu_bresp     ),
++    .bvalid    (cpu_bvalid    ),
++    .bready    (cpu_bready    ),
++
++    //debug interface
++    .debug_wb_pc      (debug_wb_pc      ),
++    .debug_wb_rf_we   (debug_wb_rf_we   ),
++    .debug_wb_rf_wnum (debug_wb_rf_wnum ),
++    .debug_wb_rf_wdata(debug_wb_rf_wdata)
+ );
+-wire         reset;
+-assign reset = ~resetn;
+-
+-wire [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus;
+-wire ds_allow_in;
+-wire fs_to_ds_valid;
+-wire [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus;
+-wire es_allow_in;
+-wire ds_to_es_valid;
+-wire [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus;
+-wire ms_allow_in;
+-wire es_to_ms_valid;
+-wire [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus;
+-wire ws_allow_in;
+-wire ms_to_ws_valid;
+-wire [`WIDTH_WS_TO_DS_BUS-1:0] ws_to_ds_bus;
+-
+-wire [`WIDTH_BR_BUS -1:0] br_bus;
+-wire [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus;
+-wire [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus;
+-
+-//task12 -- from ms to es --> help judge store
+-wire if_ms_ex;
+-
+-//task12,13 add
+-wire [`WIDTH_CSR_NUM-1:0] csr_num;
+-wire                      csr_re;
+-wire [31:0]               csr_rvalue;
+-wire [31:0]               ertn_pc;
+-wire [31:0]               ex_entry;
+-
+-wire                      csr_we;
+-wire [31:0]               csr_wvalue;
+-wire [31:0]               csr_wmask;
+-
+-wire                      wb_ex;
+-wire [31:0]               wb_pc; 
+-wire                      ertn_flush;
+-wire [5:0]                wb_ecode;
+-wire [8:0]                wb_esubcode;
+-wire [31:0]               wb_vaddr;
+-wire [31:0]               coreid_in;
+-
+-wire                      has_int;
+-wire [7:0]                hw_int_in = 8'b0;
+-wire                      ipi_int_in = 1'b0;
+-
+-//global timer counter (64bit)
+-reg [63:0] global_time_cnt;
+-
+-always @(posedge clk)
+-    begin
+-        if(reset)
+-            global_time_cnt <= 0;
+-        else if(global_time_cnt == 64'hffffffffffffffff)
+-            global_time_cnt <= 0;
+-        else
+-            global_time_cnt <= global_time_cnt + 1'b1;
+-    end
+-
+-//task13
+-/*
+-ÎªCPUÔö¼ÓÈ¡Ö¸µØÖ·´í(ADEF)¡¢µØÖ··Ç¶ÔÆë(ALE)¡¢¶Ïµã(BRK)ºÍÖ¸Áî²»´æÔÚ(INE)Òì³£µÄÖ§³Ö
+ */
+ 
+-/*---------------------------FETCH--------------------------*/
+-
+-stage1_IF fetch(
+-    .clk                (clk),
+-    .reset              (reset),
+-    .ertn_flush         (ertn_flush),
+-    .ertn_pc            (ertn_pc),
+-    .ex_entry           (ex_entry),
+-    .wb_ex              (wb_ex),
+-
+-    .ds_allow_in        (ds_allow_in),
+-    .br_bus             (br_bus),
+-    .fs_to_ds_valid     (fs_to_ds_valid),
+-    .fs_to_ds_bus       (fs_to_ds_bus),
+-
+-    .inst_sram_req      (inst_sram_req),
+-    .inst_sram_wr       (inst_sram_wr),
+-    .inst_sram_size     (inst_sram_size),
+-    .inst_sram_wstrb    (inst_sram_wstrb),
+-    .inst_sram_addr     (inst_sram_addr),
+-    .inst_sram_wdata    (inst_sram_wdata),
+-    .inst_sram_addr_ok  (inst_sram_addr_ok),
+-    .inst_sram_data_ok  (inst_sram_data_ok),
+-    .inst_sram_rdata    (inst_sram_rdata)
+-);
+-
+-/*----------------------------------------------------------*/
+-
+-
+-/*---------------------------DECODE--------------------------*/
+-
+-stage2_ID decode(
+-    .clk                (clk),
+-    .reset              (reset),
+-    .ertn_flush         (ertn_flush), 
+-    .has_int            (has_int),
+-    .wb_ex              (wb_ex),
+-
+-    .es_allow_in        (es_allow_in),
+-    .ds_allow_in        (ds_allow_in),
+-
+-    .fs_to_ds_valid     (fs_to_ds_valid),
+-    .ds_to_es_valid     (ds_to_es_valid),
+-
+-    .fs_to_ds_bus       (fs_to_ds_bus),
+-    .ds_to_es_bus       (ds_to_es_bus),
+-
+-    .ws_to_ds_bus       (ws_to_ds_bus),
+-    .br_bus             (br_bus),
+-
+-    .es_to_ds_bus       (es_to_ds_bus),
+-    .ms_to_ds_bus       (ms_to_ds_bus),
+-
+-    .data_sram_data_ok  (data_sram_data_ok)
+-);
+-
+-/*----------------------------------------------------------*/
+-
+-
+-/*---------------------------EXCUTE-------------------------*/
+-
+-stage3_EX ex(
+-    .clk                (clk),
+-    .reset              (reset),
+-    .ertn_flush         (ertn_flush),
+-    .wb_ex              (wb_ex),
+-
+-    .ms_allow_in        (ms_allow_in),
+-    .es_allow_in        (es_allow_in),
+-
+-    .ds_to_es_valid     (ds_to_es_valid),
+-    .es_to_ms_valid     (es_to_ms_valid),
+-
+-    .ds_to_es_bus       (ds_to_es_bus),
+-    .es_to_ms_bus       (es_to_ms_bus),
+-    .es_to_ds_bus       (es_to_ds_bus),
+-    .if_ms_ex      (if_ms_ex),
+-
+-    .data_sram_req      (data_sram_req),
+-    .data_sram_wr       (data_sram_wr),
+-    .data_sram_size     (data_sram_size),
+-    .data_sram_wstrb    (data_sram_wstrb),
+-    .data_sram_addr     (data_sram_addr),
+-    .data_sram_wdata    (data_sram_wdata),
+-
+-    .data_sram_addr_ok  (data_sram_addr_ok),
+-    .data_sram_data_ok  (data_sram_data_ok),
+-
+-    .global_time_cnt    (global_time_cnt)
+-);
+-
+-/*----------------------------------------------------------*/
+-
+-/*---------------------------MEM----------------------------*/
+-
+-stage4_MEM mem(
+-    .clk                (clk),
+-    .reset              (reset),
+-    .ertn_flush         (ertn_flush),
+-    .wb_ex              (wb_ex),
+-
+-    .ws_allow_in        (ws_allow_in),
+-    .ms_allow_in        (ms_allow_in),
+-
+-    .es_to_ms_valid     (es_to_ms_valid),
+-    .ms_to_ws_valid     (ms_to_ws_valid),
+-
+-    .es_to_ms_bus       (es_to_ms_bus),
+-    .ms_to_ws_bus       (ms_to_ws_bus),
+-    .ms_to_ds_bus       (ms_to_ds_bus),
+-    .if_ms_ex           (if_ms_ex),
+-
+-    .data_sram_data_ok  (data_sram_data_ok),
+-    .data_sram_rdata    (data_sram_rdata)
+-);
+-
+-/*----------------------------------------------------------*/
+-
+-/*---------------------------WBACK--------------------------*/
+-
+-stage5_WB wb(
+-    .clk                (clk),
+-    .reset              (reset),
+-
+-    .ws_allow_in        (ws_allow_in),
+-
+-    .ms_to_ws_valid     (ms_to_ws_valid),
+-
+-    .ms_to_ws_bus       (ms_to_ws_bus),
+-    .ws_to_ds_bus       (ws_to_ds_bus),
+-
+-    .debug_wb_pc        (debug_wb_pc),
+-    .debug_wb_rf_we     (debug_wb_rf_we),
+-    .debug_wb_rf_wnum   (debug_wb_rf_wnum),
+-    .debug_wb_rf_wdata  (debug_wb_rf_wdata),
+-
+-    //task12 add
+-    .csr_num            (csr_num),
+-    .csr_re             (csr_re),
+-    .csr_rvalue         (csr_rvalue),
+-    .csr_we             (csr_we),
+-    .csr_wvalue         (csr_wvalue),
+-    .csr_wmask          (csr_wmask),
+-    .ertn_flush         (ertn_flush),
+-    .wb_ex              (wb_ex),
+-    .wb_pc              (wb_pc),
+-    .wb_ecode           (wb_ecode),
+-    .wb_esubcode        (wb_esubcode),
+-    .wb_vaddr           (wb_vaddr)
++module mycpu_top(
++    input           aclk,
++    input           aresetn,
++
++    //ar ¶ÁÇëÇóÍ¨µÀ
++
++    output [3:0]    arid,           //¶ÁÇëÇóIDºÅ                           È¡Ö¸0£¬È¡Êı1        
++    output [31:0]   araddr,         //¶ÁÇëÇóµÄµØÖ·                          
++    output [7:0]    arlen,          //ÇëÇó´«Êä³¤¶È(Êı¾İ´«ÊäÅÄÊı)            ¹Ì¶¨Îª0
++    output [2:0]    arsize,         //ÇëÇó´«Êä´óĞ¡(Êı¾İ´«ÊäÃ¿ÅÄµÄ×Ö½ÚÊı)     
++    output [1:0]    arburst,        //´«ÊäÀàĞÍ                             ¹Ì¶¨Îª2'b01
++    output [1:0]    arlock,         //Ô­×ÓËø                               
++    output [3:0]    arcache,        //CACHEÊôĞÔ
++    output [2:0]    arprot,         //±£»¤ÊôĞÔ
++    output          arvalid,        //¶ÁÇëÇóµØÖ·ÎÕÊÖ(¶ÁÇëÇóµØÖ·ÓĞĞ§)
++    input           arready,        //¶ÁÇëÇóµØÖ·ÎÕÊÖ(slave¶Ë×¼±¸ºÃ½ÓÊÕµØÖ·)
++
++    //r  ¶ÁÏìÓ¦Í¨µÀ
++    input  [3:0]    rid,            //¶ÁÇëÇóµÄIDºÅ£¬Í¬Ò»ÇëÇóµÄrid=arid
++    input  [31:0]   rdata,          //¶ÁÇëÇóµÄ¶Á»ØÊı¾İ
++    input  [1:0]    rresp,          //±¾´Î¶ÁÇëÇóÊÇ·ñ³É¹¦Íê³É(¿ÉºöÂÔ)
++    input           rlast,          //±¾´Î¶ÁÇëÇó×îºóÒ»ÅÄÖ¸Ê¾ĞÅºÅ(¿ÉºöÂÔ)
++    input           rvalid,         //¶ÁÇëÇóÊı¾İÎÕÊÖ(¶ÁÇëÇóÊı¾İÓĞĞ§)
++    output          rready,         //¶ÁÇëÇóÊı¾İÎÕÊÖ(master¶Ë×¼±¸ºÃ½ÓÊÕÊı¾İ)
++
++    //aw  Ğ´ÇëÇóÍ¨µÀ
++    output [3:0]    awid,           //Ğ´ÇëÇóµÄIDºÅ
++    output [31:0]   awaddr,         //Ğ´ÇëÇóµÄµØÖ·
++    output [7:0]    awlen,          //ÇëÇó´«ÊäµÄ³¤¶È
++    output [2:0]    awsize,         //ÇëÇó´«ÊäµÄ´óĞ¡(Êı¾İ´«ÊäÃ¿ÅÄµÄ×Ö½ÚÊı)
++    output [1:0]    awburst,        //´«ÊäÀàĞÍ
++    output [1:0]    awlock,         //Ô­×ÓËø
++    output [1:0]    awcache,        //CACHEÊôĞÔ
++    output [2:0]    awprot,         //±£»¤ÊôĞÔ
++    output          awvalid,        //Ğ´ÇëÇóµØÖ·ÎÕÊÖ(Ğ´ÇëÇóµØÖ·ÓĞĞ§)
++    input           awready,        //Ğ´ÇëÇóµØÖ·ÎÕÊÖ(slave¶Ë×¼±¸ºÃ½ÓÊÕµØÖ·)
++
++    //w  Ğ´Êı¾İÍ¨µÀ
++    output [3:0]    wid,            //Ğ´ÇëÇóµÄIDºÅ
++    output [31:0]   wdata,          //Ğ´ÇëÇóµÄĞ´Êı¾İ
++    output [3:0]    wstrb,          //×Ö½ÚÑ¡Í¨Î»
++    output          wlast,          //±¾´ÎĞ´ÇëÇóµÄ×îºóÒ»ÅÄÊı¾İµÄÖ¸Ê¾ĞÅºÅ
++    output          wvalid,         //Ğ´ÇëÇóÊı¾İÎÕÊÖ(Ğ´ÇëÇóÊı¾İÓĞĞ§)
++    input           wready,         //Ğ´ÇëÇóÊı¾İÎÕÊÖ(slave¶Ë×¼±¸ºÃ½ÓÊÕÊı¾İ)
++
++    //b  Ğ´ÏìÓ¦Í¨µÀ
++    input  [3:0]    bid,            //bid = wid = awid
++    input  [1:0]    bresp,          //±¾´ÎĞ´ÇëÇóÊÇ·ñ³É¹¦Íê³É
++    input           bvalid,         //Ğ´ÇëÇóÏìÓ¦ÎÕÊÖ(Ğ´ÇëÇóÏìÓ¦ÓĞĞ§)
++    output          bready,         //Ğ´ÇëÇóÏìÓ¦ÎÕÊÖ(master¶Ë×¼±¸ºÃ½ÓÊÕĞ´ÏìÓ¦)
++
++    // debug
++    output [31:0] debug_wb_pc     ,
++    output [ 3:0] debug_wb_rf_we ,
++    output [ 4:0] debug_wb_rf_wnum,
++    output [31:0] debug_wb_rf_wdata
+ );
+ 
+-/*----------------------------------------------------------*/
+-
+-/*
+-module csr_reg(
+-    input                         clk,
+-    input                         reset,
+-
+-    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //¼Ä´æÆ÷ºÅ
+-
+-    input                         csr_re,            //¶ÁÊ¹ÄÜ
+-    output             [31:0]     csr_rvalue,        //¶ÁÊı¾İ
+-    output             [31:0]     ertn_pc,
+-    output             [31:0]     ex_entry,
+-
+-    input                         csr_we,            //Ğ´Ê¹ÄÜ
+-    input              [31:0]     csr_wmask,         //Ğ´ÑÚÂë
+-    input              [31:0]     csr_wvalue,        //Ğ´Êı¾İ
+-
+-    input                         wb_ex,             //Ğ´»Ø¼¶Òì³£
+-    input              [31:0]     wb_pc,             //Òì³£pc
+-    input                         ertn_flush,        //ertnÖ¸ÁîÖ´ĞĞÓĞĞ§ĞÅºÅ
+-    input              [5:0]      wb_ecode,          //Òì³£ÀàĞÍ1¼¶Âë
+-    input              [8:0]      wb_esubcode,       //Òì³£ÀàĞÍ2¼¶Âë
+-    input              [31:0]     wb_vaddr, 
+-    input              [31:0]     coreid_in,
+-
+-    output                        has_int,
+-    input              [7:0]      hw_int_in,
+-    input                         ipi_int_in
+-);
+-*/
+-
+-/*---------------------------csr_reg--------------------------*/
+-csr_reg cr(
+-    .clk                (clk),
+-    .reset              (reset),
+-
+-    .csr_num            (csr_num),
++wire        cpu_inst_req;
++wire        cpu_inst_wr;
++wire [1:0]  cpu_inst_size;
++wire [31:0] cpu_inst_addr;
++wire [3:0]  cpu_inst_wstrb;
++wire [31:0] cpu_inst_wdata;
++wire        cpu_inst_addr_ok;
++wire        cpu_inst_data_ok;
++wire [31:0] cpu_inst_rdata;
++
++wire        cpu_data_req;
++wire        cpu_data_wr;
++wire [1:0]  cpu_data_size;
++wire [31:0] cpu_data_addr;
++wire [3:0]  cpu_data_wstrb;
++wire [31:0] cpu_data_wdata;
++wire        cpu_data_addr_ok;
++wire        cpu_data_data_ok;
++wire [31:0] cpu_data_rdata;
++
++cpu_bridge_axi u_cpu_bridge_axi(
++    .clk        (aclk),
++    .resetn     (aresetn),
++
++    //inst sram
++    .inst_req       (cpu_inst_req),
++    .inst_wr        (cpu_inst_wr),
++    .inst_size      (cpu_inst_size),
++    .inst_addr      (cpu_inst_addr),
++    .inst_wstrb     (cpu_inst_wstrb),
++    .inst_wdata     (cpu_inst_wdata),
++    .inst_addr_ok   (cpu_inst_addr_ok),
++    .inst_data_ok   (cpu_inst_data_ok),
++    .inst_rdata     (cpu_inst_rdata),
++
++    //data sram
++    .data_req       (cpu_data_req),
++    .data_wr        (cpu_data_wr),
++    .data_size      (cpu_data_size),
++    .data_addr      (cpu_data_addr),
++    .data_wstrb     (cpu_data_wstrb),
++    .data_wdata     (cpu_data_wdata),
++    .data_addr_ok   (cpu_data_addr_ok),
++    .data_data_ok   (cpu_data_data_ok),
++    .data_rdata     (cpu_data_rdata),
++
++    //ar
++    .arid           (arid),
++    .araddr         (araddr),
++    .arlen          (arlen),
++    .arsize         (arsize),
++    .arburst        (arburst),
++    .arlock         (arlock),
++    .arcache        (arcache),
++    .arprot         (arprot),
++    .arvalid        (arvalid),
++    .arready        (arready),
+     
+-    .csr_re             (csr_re),
+-    .csr_rvalue         (csr_rvalue),
+-    .ertn_pc            (ertn_pc),
+-    .ex_entry           (ex_entry),
+-
+-    .csr_we             (csr_we),
+-    .csr_wmask          (csr_wmask),
+-    .csr_wvalue         (csr_wvalue),
+-
+-    .wb_ex              (wb_ex),
+-    .wb_pc              (wb_pc),
+-    .ertn_flush         (ertn_flush),
+-    .wb_ecode           (wb_ecode),
+-    .wb_esubcode        (wb_esubcode), 
+-    .wb_vaddr           (wb_vaddr),
+-    .coreid_in          (coreid_in),
+-
+-    .has_int            (has_int),
+-    .hw_int_in          (hw_int_in),
+-    .ipi_int_in         (ipi_int_in)
++    //r
++    .rid            (rid),
++    .rdata          (rdata),
++    .rresp          (rresp),
++    .rlast          (rlast),
++    .rvalid         (rvalid),
++    .rready         (rready),
++    
++    //aw
++    .awid           (awid),
++    .awaddr         (awaddr),
++    .awlen          (awlen),
++    .awsize         (awsize),
++    .awburst        (awburst),
++    .awlock         (awlock),
++    .awcache        (awcache),
++    .awprot         (awprot),
++    .awvalid        (awvalid),
++    .awready        (awready),
++    
++    //w
++    .wid            (wid),
++    .wdata          (wdata),
++    .wstrb          (wstrb),
++    .wlast          (wlast),
++    .wvalid         (wvalid),
++    .wready         (wready),
++    
++    //b
++    .bid            (bid),
++    .bresp          (bresp),
++    .bvalid         (bvalid),
++    .bready         (bready)
+ );
+ 
+-/*------------------------------------------------------------*/
++mycpu u_cpu(
++    .clk              (aclk),
++    .resetn           (aresetn),  //low active
++
++    // inst sram
++    .inst_sram_req    (cpu_inst_req),
++    .inst_sram_wr     (cpu_inst_wr),
++    .inst_sram_size   (cpu_inst_size),
++    .inst_sram_wstrb  (cpu_inst_wstrb),
++    .inst_sram_addr   (cpu_inst_addr),
++    .inst_sram_wdata  (cpu_inst_wdata),
++    .inst_sram_addr_ok(cpu_inst_addr_ok),
++    .inst_sram_data_ok(cpu_inst_data_ok),
++    .inst_sram_rdata  (cpu_inst_rdata),
++
++    // data sram
++    .data_sram_req    (cpu_data_req),
++    .data_sram_wr     (cpu_data_wr),
++    .data_sram_size   (cpu_data_size),
++    .data_sram_wstrb  (cpu_data_wstrb),
++    .data_sram_addr   (cpu_data_addr),
++    .data_sram_wdata  (cpu_data_wdata),
++    .data_sram_addr_ok(cpu_data_addr_ok),
++    .data_sram_data_ok(cpu_data_data_ok),
++    .data_sram_rdata  (cpu_data_rdata),
++
++    //debug interface
++    .debug_wb_pc      (debug_wb_pc),
++    .debug_wb_rf_we  (debug_wb_rf_we),
++    .debug_wb_rf_wnum (debug_wb_rf_wnum),
++    .debug_wb_rf_wdata(debug_wb_rf_wdata)
++);
+ 
+ endmodule
+\ No newline at end of file
+diff --git a/cyt_code/patch/generate_ex13_to_ex14.patch b/cyt_code/patch/generate_ex13_to_ex14.patch
+new file mode 100644
+index 0000000..929bcfd
+--- /dev/null
++++ b/cyt_code/patch/generate_ex13_to_ex14.patch
+@@ -0,0 +1,690 @@
++From 959880d4f87e1fc456214caf3cb879639f40cbbd Mon Sep 17 00:00:00 2001
++From: qisan <guchaoyang20@mails.ucas.ac.cn>
++Date: Tue, 1 Nov 2022 08:47:49 +0800
++Subject: [PATCH] for patch2-14
++
++---
++ cyt_code/for_patch/EX.v        |  68 +++++++++---
++ cyt_code/for_patch/ID.v        |  39 ++++---
++ cyt_code/for_patch/IF.v        | 184 +++++++++++++++++++++++++++------
++ cyt_code/for_patch/MEM.v       |  17 +--
++ cyt_code/for_patch/WB.v        |   2 +-
++ cyt_code/for_patch/mycpu_top.v |  41 ++++++--
++ cyt_code/for_patch/width.vh    |   8 +-
++ 7 files changed, 280 insertions(+), 79 deletions(-)
++
++diff --git a/cyt_code/for_patch/EX.v b/cyt_code/for_patch/EX.v
++index a877f96..424bf97 100644
++--- a/cyt_code/for_patch/EX.v
+++++ b/cyt_code/for_patch/EX.v
++@@ -17,10 +17,15 @@ module stage3_EX(
++     output [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
++     input                           if_ms_ex,
++ 
++-    output data_sram_en,
++-    output [3:0]data_sram_wen,
++-    output [31:0] data_sram_addr,
++-    output [31:0] data_sram_wdata,
+++    output              data_sram_req,
+++    output              data_sram_wr,
+++    output [1:0]        data_sram_size,
+++    output [3:0]        data_sram_wstrb,
+++    output [31:0]       data_sram_addr,
+++    output [31:0]       data_sram_wdata,
+++
+++    input               data_sram_addr_ok,
+++    input               data_sram_data_ok,
++ 
++     input [63:0] global_time_cnt
++ );
++@@ -102,8 +107,6 @@ always @(posedge clk)
++             ds_to_es_bus_reg <= ds_to_es_bus;
++         else if(es_need_wait_div)        
++             ds_to_es_bus_reg <= ds_to_es_bus_reg;
++-        else
++-            ds_to_es_bus_reg <= 0;
++     end
++ 
++ 
++@@ -182,6 +185,11 @@ assign es_to_ms_bus[178:178] = es_ex_break;
++ assign es_to_ms_bus[179:179] = es_has_int;
++ assign es_to_ms_bus[211:180] = es_vaddr;
++ 
+++//task14
+++//when st, we need raise ms_ready_go when data_ok
+++//so we need to tell ms that it's a st inst
+++assign es_to_ms_bus[212:212] = es_mem_we;
+++
++ /*-------------------------------------------------------*/
++ 
++ /*-------------------------link alu---------------------*/
++@@ -313,10 +321,19 @@ always@(posedge clk)
++ /*-------------------------------------------------------*/
++ 
++ /*-------------------------valid-------------------------*/
+++wire no_exception;
+++assign no_exception = ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int;
+++
+++// µ±MS¼¶µÄallowinÎª1Ê±ÔÙ·¢³öreq£¬ÊÇÎªÁË±£Ö¤reqÓëaddr_okÎÕÊÖÊ±allowinÒ²ÊÇÀ­¸ßµÄ
+++// µ±esÁ÷Ë®¼¶»òms,wsÓĞÒì³£Ê±×èÖ¹·Ã´æ£¬ÎªÁËÎ¬»¤¾«È·Òì³£¡£
+++assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_mem_we) && es_valid;
++ reg es_valid;   
++ 
++ wire es_ready_go;
++-assign es_ready_go = es_need_wait_div ? (signed_out_tvalid || unsigned_out_tvalid) : 1'b1;
+++//¶Ôes_ready_go,Èç¹ûÊÇ·Ã´æÖ¸Áî£¬ÔòĞèÒªµÈ´ıÓëaddr_okÎÕÊÖºóÔÙÀ­¸ß
+++//Èô·Ç·Ã´æÖ¸Áî£¬Èç¹ûÊÇ³ı·¨Ö¸ÁîÔòÒ»¸öclkËã²»³ö½á¹û£¬ĞèÒªµÈ´ı½á¹ûÓĞĞ§
+++assign es_ready_go = if_es_ex ? 1'b1 : (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
+++                     (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
++ assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
++ assign es_to_ms_valid = es_valid && es_ready_go;
++ 
++@@ -377,20 +394,43 @@ assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || e
++ assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
++ */
++ 
++-assign data_sram_en = ~es_ex_ALE;   //when ALE, stop read
+++/*
+++    output              data_sram_req,
+++    output              data_sram_wr,
+++    output [1:0]        data_sram_size,
+++    output [3:0]        data_sram_wstrb,
+++    output [31:0]       data_sram_addr,
+++    output [31:0]       data_sram_wdata,
+++*/
++ 
++-// when es_ex or ex before es_inst or es_has_int, stop write 
++-assign data_sram_wen = ((es_mem_we && es_valid) && ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int) ? w_strb : 4'b0000;
+++assign data_sram_wr = es_mem_we;   
+++assign data_sram_size = es_mem_we ? 
+++                        (es_st_op[0] ? 2'b10 :  //st_w  
+++                         es_st_op[1] ? 2'b00 :  //st_b
+++                         es_st_op[2] ? 2'b01 : 2'b00)
+++                        :
+++                        es_res_from_mem ?
+++                        (es_ld_op[0] ? 2'b10 :  //ld_w
+++                         (es_ld_op[1] | es_ld_op[2]) ? 2'b00 :  //ld_b. ld_bu
+++                         (es_ld_op[3] | es_ld_op[4]) ? 2'b01 : 2'b00)
+++                        :
+++                        2'b00;
+++
+++assign data_sram_wstrb = es_st_op[0] ? 4'b1111 :
+++                         es_st_op[1] ? (es_unaligned_addr==2'b00 ? 4'b0001 : es_unaligned_addr==2'b01 ? 4'b0010 : 
+++                                es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
+++                         es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
++ 
++-assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+++//assign data_sram_addr  = {es_alu_result[31:2],2'b00};
+++assign data_sram_addr  = es_alu_result;
++ assign data_sram_wdata = real_wdata;        
++ /*--------------------------------------------------------*/
++ 
++ /*-----------------------deliver es_to_ds_bus----------------*/
++-wire IF_LOAD;   //if inst is load --> which means forward needs block for one clk
++-assign IF_LOAD = es_res_from_mem;
+++wire if_es_load;   //if inst is load --> which means forward needs block for one clk
+++assign if_es_load = es_res_from_mem;
++ //task12 add es_csr_write, es_csr_num
++-assign es_to_ds_bus = {es_gr_we,es_dest,IF_LOAD,es_calcu_result,
+++assign es_to_ds_bus = {es_valid,es_gr_we,es_dest,if_es_load,es_calcu_result,
++                        es_csr_write, es_csr_num, es_csr};
++ 
++ /*-------------------------------------------------------*/
++diff --git a/cyt_code/for_patch/ID.v b/cyt_code/for_patch/ID.v
++index dc46a1d..8489326 100644
++--- a/cyt_code/for_patch/ID.v
+++++ b/cyt_code/for_patch/ID.v
++@@ -23,7 +23,9 @@ module stage2_ID(
++     output [`WIDTH_BR_BUS-1:0] br_bus,
++ 
++     input [`WIDTH_ES_TO_DS_BUS-1:0] es_to_ds_bus,
++-    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus
+++    input [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ds_bus,
+++
+++    input data_sram_data_ok
++ );
++ 
++ /*-------------------------for decode--------------------------*/
++@@ -534,23 +536,27 @@ wire [13:0] ws_csr_num;
++ wire ws_csr;
++ assign {ws_csr, ws_csr_num, ws_ertn_flush, ws_csr_write, rf_we, rf_waddr,rf_wdata} = ws_to_ds_bus;
++ 
+++wire es_valid;
++ wire es_we;
++ wire [4:0] es_dest;
++-wire IF_LOAD;
+++wire if_es_load;
++ wire [31:0] es_wdata;
++ wire es_csr_write;
++ wire [13:0] es_csr_num;
++ wire es_csr;
++ 
+++wire ms_to_ws_valid;
+++wire ms_valid;
++ wire ms_we;
++ wire [4:0] ms_dest;
+++wire if_ms_load;
++ wire [31:0] ms_wdata;
++ wire ms_csr_write;
++ wire [13:0] ms_csr_num;
++ wire ms_csr;
++ 
++-assign {es_we, es_dest, IF_LOAD, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
++-assign {ms_we, ms_dest, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
+++assign {es_valid, es_we, es_dest, if_es_load, es_wdata, es_csr_write, es_csr_num, es_csr} = es_to_ds_bus;
+++assign {ms_to_ws_valid, ms_valid, ms_we, ms_dest, if_ms_load, ms_wdata, ms_csr_write, ms_csr_num, ms_csr} = ms_to_ds_bus;
++ /*-------------------------------------------------------*/
++ 
++ /*-----------------------deliver br_bus----------------------*/
++@@ -560,11 +566,16 @@ assign br_taken = ((inst_beq && rj_eq_rd) || (inst_bne && !rj_eq_rd)
++                    || inst_jirl || inst_bl || inst_b) && ds_valid;
++ 
++ wire br_taken_cancel;
+++wire br_stall;
+++//µ±ÒëÂë¼¶ÊÇÌø×ªÖ¸Áî£¬ÇÒÓëÇ°ÃæµÄloadÖ¸ÁîÓĞÊı¾İ³åÍ»Ê±£¬ĞèÒªÀ­¸ßbr_stallÁîÈ¡Ö¸ÔİÊ±×èÈû
+++assign br_stall = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt
+++                || inst_bge || inst_bgeu || inst_bltu) && 
+++                ((es_valid && if_es_load && (ex_crush1 || ex_crush2)) || (~ms_to_ws_valid && ms_valid && if_ms_load && (mem_crush1 || mem_crush2)) || csr_crush);
++ 
++ assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_blt 
++                              || inst_bge || inst_bltu || inst_bgeu) ? (ds_pc + br_offs) :   
++                                                    /*inst_jirl*/ (rj_value + jirl_offs); 
++-assign br_bus = {br_taken_cancel,br_taken,br_target};           
+++assign br_bus = {br_taken_cancel, br_stall, br_taken, br_target};           
++ /*-------------------------------------------------------*/
++ 
++ /*-----------------------deliver ds_to_es_bus----------------*/
++@@ -585,6 +596,7 @@ assign imm = src2_is_4 ? 32'h4                       :
++ assign dst_is_r1     = inst_bl;
++ //task13 --> inst_rdcntid is specail --> write into reg rj
++ assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
+++
++ assign gr_we         = ~inst_st_w & ~inst_st_b & ~inst_st_h &~inst_beq & ~inst_bne & ~inst_b & 
++                        ~inst_blt & ~inst_bltu & ~inst_bge & ~inst_bgeu & ~inst_ertn & ~inst_break & ~ds_ex_INE & ~ds_ex_ADEF &
++                        ~ds_ex_syscall;    //task12 add csr will write reg_file 
++@@ -723,7 +735,7 @@ assign if_read_addr2 = inst_beq || inst_bne || inst_blt || inst_bge || inst_bltu
++                        inst_div_w || inst_div_wu || inst_mod_w || inst_mod_wu ||
++                        inst_csrrd || inst_csrwr || inst_csrxchg;     //task12 add 
++ 
++-wire Need_Block;    //(ex_crush & IF_LOAD) or csr_crush
+++wire Need_Block;    
++ 
++ //when ertn_flush or wb_ex or has_int , we can't block ,becaue it will make ds_allow_in down, so that fs_allow_in down, finally fetch error
++ /*
++@@ -737,17 +749,20 @@ when fs_allow_in down, we block (fetch_pc <= next_pc), and this next_pc is essen
++ or return from exception, this out_of_exception block will make next_pc (key) lost
++ so we must avoid this situation happen!
++ */
++-assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
+++//assign Need_Block = (((ex_crush1 || ex_crush2) && IF_LOAD) || csr_crush) && ~ertn_flush && ~wb_ex && ~has_int;
+++//assign Need_Block = csr_crush && ~ertn_flush && ~wb_ex && ~has_int;
+++assign Need_Block = ( (if_es_load && (ex_crush1 || ex_crush2)) || (~ms_to_ws_valid && if_ms_load && (mem_crush1 || mem_crush2)) || csr_crush )
+++                    && ~ertn_flush && ~wb_ex && ~has_int;
++ 
++ wire ex_crush1;
++ wire ex_crush2;
++-assign ex_crush1 = (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
++-assign ex_crush2 = (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
+++assign ex_crush1 = es_valid && (es_we && es_dest!=0) && (if_read_addr1 && rf_raddr1==es_dest);
+++assign ex_crush2 = es_valid && (es_we && es_dest!=0) && (if_read_addr2 && rf_raddr2==es_dest);
++ 
++ wire mem_crush1;
++ wire mem_crush2;
++-assign mem_crush1 = (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
++-assign mem_crush2 = (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
+++assign mem_crush1 = ms_valid && (ms_we && ms_dest!=0) && (if_read_addr1 && rf_raddr1==ms_dest);
+++assign mem_crush2 = ms_valid && (ms_we && ms_dest!=0) && (if_read_addr2 && rf_raddr2==ms_dest);
++ 
++ wire wb_crush1;
++ wire wb_crush2;
++@@ -774,7 +789,7 @@ to achieve forward deliver
++ 
++ wire csr_crush;
++ 
++-assign csr_crush = (es_csr && (ex_crush1 || ex_crush2)) || (ms_csr && (mem_crush1 || mem_crush2));  //|| (ws_csr && (wb_crush1 || wb_crush2));
+++assign csr_crush = ds_valid && ( (es_valid && es_csr && (ex_crush1 || ex_crush2)) || (ms_valid && ms_csr && (mem_crush1 || mem_crush2)) );  //|| (ws_csr && (wb_crush1 || wb_crush2));
++ 
++ //forward deliver
++ wire [31:0] forward_rdata1;
++diff --git a/cyt_code/for_patch/IF.v b/cyt_code/for_patch/IF.v
++index 8cbb147..8f6a09f 100644
++--- a/cyt_code/for_patch/IF.v
+++++ b/cyt_code/for_patch/IF.v
++@@ -13,59 +13,170 @@ module stage1_IF(
++     output fs_to_ds_valid,
++     output [`WIDTH_FS_TO_DS_BUS-1:0] fs_to_ds_bus,
++ 
++-    output inst_sram_en,
++-    output [3:0] inst_sram_wen,
++-    output [31:0] inst_sram_addr,
++-    output [31:0] inst_sram_wdata,
++-
++-    input [31:0] inst_sram_rdata
+++    output          inst_sram_req,
+++    output          inst_sram_wr,
+++    output [1:0]    inst_sram_size,
+++    output [3:0]    inst_sram_wstrb,
+++    output [31:0]   inst_sram_addr,
+++    output [31:0]   inst_sram_wdata,
+++
+++    input           inst_sram_addr_ok,
+++    input           inst_sram_data_ok,
+++    input  [31:0]   inst_sram_rdata
++ );
++ 
++ /*--------------------------------valid-----------------------------*/
+++    
+++// pre_ifÎ±Á÷Ë®¼¶µÄ¹¤×÷ÊÒ·¢³öÈ¡Ö¸ÇëÇó
+++// µ±IF¼¶µÄallowinÎª1Ê±ÔÙ·¢³öreq£¬ÊÇÎªÁË±£Ö¤reqÓëaddr_okÎÕÊÖÊ±allowinÒ²ÊÇÀ­¸ßµÄ
+++//assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in;
+++assign inst_sram_req = (reset || br_stall) ? 1'b0 : fs_allow_in ? inst_sram_req_reg : 1'b0;
++ 
++-reg fs_valid;    
+++reg inst_sram_req_reg;
+++always @(posedge clk)
+++    begin
+++        if(reset)
+++            inst_sram_req_reg <= 1'b1;
+++        else if(inst_sram_req && inst_sram_addr_ok)
+++            //ÎÕÊÖ³É¹¦£¬ÔÚÎÕÊÖ³É¹¦µÄÏÂÒ»¸öÊ±ÖÓÉÏÑØÀ­µÍreq
+++            inst_sram_req_reg <= 1'b0;
+++        else if(inst_sram_data_ok)
+++            //ÔÚÎÕÊÖ½ÓÊÕµ½Êı¾İ(data_ok)Ê±£¬ÖØĞÂÀ­¸ßreq
+++            inst_sram_req_reg <= 1'b1;
+++    end
++ 
++-//¶Ôfs_validÀ´Ëµ£¬Ö»ÒªÈ¡Ïûreset£¬Ïàµ±È¥Ç°Ò»½×¶Î¶ÔËü·¢À´µÄvalidĞÅºÅ
+++// µ±reqÓëaddr_okÎÕÊÖ³É¹¦Ê±£¬´ú±íÇëÇó·¢ËÍ³É¹¦£¬À­¸ßready_go
+++wire pre_if_ready_go;
+++assign pre_if_ready_go = inst_sram_req & inst_sram_addr_ok;
++ wire pre_if_to_fs_valid;
++-assign pre_if_to_fs_valid = !reset;
+++assign pre_if_to_fs_valid = !reset & pre_if_ready_go;
++ 
++ wire fs_ready_go;
++-
+++// µ±data_okÀ­¸ßÊ±´ú±íÒÑËÍÀ´Ö¸ÁîÂë£¬½«fs_ready_goÀ­¸ß
+++// µ±temp_instÓĞĞ§Ê±ËµÃ÷fs_ready_goÒÑ¾­À­¸ß£¬¶øds_allow_inÃ»À­¸ß
+++// Òò´Ë´ËÊ±ÔÚµÈds_allow_in£¬ĞèÒª±£³Ötemp_instÀ­¸ß
+++// Í¬Ê±µ±deal_with_cancelÀ­¸ßÊ±£¬±íÃ÷ĞèÒª¶ªÆúÏÂÒ»¸öÊÕµ½µÄ´íÎóÖ¸Áî£¬¼´½«fs_ready_goÀ­µÍ
+++//assign fs_ready_go = deal_with_cancel ? (inst_sram_data_ok ? 1'b1: 1'b0) : ((temp_inst != 0) || inst_sram_data_ok);
+++assign fs_ready_go = deal_with_cancel ? 1'b0 : ((temp_inst != 0) || inst_sram_data_ok);
+++
+++reg fs_valid;
++ always @(posedge clk)
++     begin
++         if(reset)
++             fs_valid <= 1'b0;
++         else if(fs_allow_in)
++-            fs_valid <= pre_if_to_fs_valid;
++-        /*
+++            begin
+++                if(wb_ex || ertn_flush)
+++                    /*¶ÔÓ¦2.1Çé¿ö¡ª¡ªIF¼¶Ã»ÓĞÓĞĞ§Ö¸Áî»ò
+++                    ÓĞÓĞĞ§Ö¸Áîµ«½«ÒªÁ÷ÏòID¼¶£¬ÈôÊÕµ½cancel
+++                    Ôò½«ÏÂÒ»ÅÄfs_vaildÖÃ0*/
+++                    fs_valid <= 1'b0;
+++                else
+++                    fs_valid <= pre_if_to_fs_valid;
+++            end
++         else if(br_taken_cancel)
++             fs_valid <= 1'b0;
++-        */
++     end
++ 
++-//½«output-fs_to_ds_validÓëreg fs_validÁ¬½Ó
++-//¿¼ÂÇµ½ºóĞò¿ÉÄÜÒ»¸öclkÍê³É²»ÁËFETCH£¬raise fs_ready_go
++-assign fs_ready_go = 1'b1;
++ wire fs_allow_in;
++-assign fs_allow_in = !fs_valid || fs_ready_go && ds_allow_in;
+++assign fs_allow_in = !fs_valid || (fs_ready_go && ds_allow_in) || (deal_with_cancel && inst_sram_data_ok);
++ assign fs_to_ds_valid = fs_valid && fs_ready_go;
++ 
+++//µ±fs_ready_go = 1 ¶ø ds_allow_in = 0 Ê±
+++//IF¼¶ÊÕµ½ÁËÖ¸Áîµ«ÊÇID¼¶»¹²»ÈÃ½øÈë£¬ĞèÒªÉèÖÃÒ»×é´¥·¢Æ÷À´±£´æÈ¡³öµÄÖ¸Áî
+++//µ±¸Ã×é´¥·¢Æ÷ÓĞÓĞĞ§Êı¾İÊ±£¬ÔòÑ¡Ôñ¸Ã×é´¥·¢Æ÷±£´æµÄÊı¾İ×÷ÎªIF¼¶È¡»ØµÄÖ¸ÁîËÍÍùID¼¶
+++
+++reg [31:0] temp_inst;
+++
+++always @(posedge clk)
+++    begin
+++        if(reset)
+++            temp_inst <= 0;
+++        else if(fs_ready_go)
+++            begin
+++                if(wb_ex || ertn_flush)
+++                    //µ±cancelÊ±£¬½«»º´æÖ¸ÁîÇå0
+++                    //¶ÔÓ¦2.2.1Çé¿ö
+++                    temp_inst <= 0;
+++                else if(!ds_allow_in)
+++                    //Ôİ´æÖ¸Áî
+++                    temp_inst <= inst_sram_rdata;
+++                else
+++                    //µ±dsÔÊĞí½øÈëÊ±£¬ÔÚÕâ¸öÊ±ÖÓÉÏÑØ¾ÍÁ¢¿Ì½«temp_inst
+++                    //ËÍÈëds¼¶£¬Í¬Ê±½«temp_instÇåÁã£¬´ú±í¸ÃÖ¸Áî»º´æ²»ÔÙÓĞÓĞĞ§Ö¸Áî
+++                    temp_inst <= 0;
+++            end
+++    end
+++
+++/*ÎªÁË½â¾öÇå¿ÕÁ÷Ë®¼¶ÖĞµÄ1.2ºÍ2.2.2Çé¿ö
+++¼´ÔÚcancelºó£¬IF¼¶ºóĞøÊÕµ½µÄµÚÒ»¸ö·µ»ØµÄÖ¸ÁîÊı¾İÊÇ¶Ôµ±Ç°±»cancelµÄÈ¡ÖµÖ¸ÁîµÄ·µ»Ø
+++Òò´ËºóĞøÊÕµ½µÄµÚÒ»¸ö·µ»ØµÄÖ¸ÁîÊı¾İĞèÒª±»¶ªÆú£¬²»ÄÜÈÃÆäÁ÷ÏòID¼¶
+++½â¾ö·½·¨ÊÇ£º
+++Î¬»¤Ò»¸ö´¥·¢Æ÷£¬¸´Î»ÖµÎª0£¬µ±Óöµ½1.2»ò2.2.2Ê±£¬¸Ã´¥·¢Æ÷ÖÃ1£¬µ±ÊÕµ½data_okÊ±¸´ÖÃ0
+++µ±¸Ã´¥·¢Æ÷Îª1Ê±£¬½«IF¼¶µÄready_goÄ¨Áã£¬¼´µ±data_okÀ´ÁÙµÄÊ±ÖÓÉÏÑØ£¬fs_ready_go
+++Ç¡ºÃÈÔÎª0£¬µ¼ÖÂ¸ÕºÃ¶ªÆúÁËdata£¨¶ªÆúµÄÖ¸Áî£© */
+++reg deal_with_cancel;
+++always @(posedge clk)
+++    begin
+++        if(reset)
+++            deal_with_cancel <= 1'b0;
+++        else if((wb_ex || ertn_flush) && pre_if_to_fs_valid)
+++            //pre_if_to_fs_valid ¶ÔÓ¦1.2Çé¿ö¡ª¡ªpre-if·¢ËÍµÄµØÖ·ÕıºÃ±»½ÓÊÕ
+++            deal_with_cancel <= 1'b1;
+++        else if(~fs_allow_in && (wb_ex || ertn_flush) && ~fs_ready_go)
+++            //~fs_allow_in ÇÒ ~fs_ready_go ¶ÔÓ¦2.2.2Çé¿ö¡ª¡ªIF¼¶ÕıÔÚµÈ´ıdata_ok
+++            deal_with_cancel <= 1'b1;
+++        else if(inst_sram_data_ok)
+++            deal_with_cancel <= 1'b0;
+++    end
+++
++ /*----------------------------------------------------------------*/
++ 
++ /*--------------------------------pc------------------------------*/
++ 
++ wire [31:0] br_target;  //Ìø×ªµØÖ·
++ wire br_taken;          //ÊÇ·ñÌø×ª
++-wire br_taken_cancel;
+++wire br_stall;          
+++wire br_taken_cancel; 
++ //br_takenºÍbr_targetÀ´×Ôbr_bus
++-assign {br_taken_cancel,br_taken,br_target} = br_bus;
+++assign {br_taken_cancel, br_stall, br_taken, br_target} = br_bus;
++ 
++ reg [31:0] fetch_pc; 
++ 
++ wire [31:0] seq_pc;     //Ë³ĞòÈ¡Ö·
++-assign seq_pc = fetch_pc + 4;
+++assign seq_pc = (fetch_pc + 4);
++ wire [31:0] next_pc;    //nextpcÀ´×Ôseq»òbr
++-assign next_pc = wb_ex? ex_entry : ertn_flush? ertn_pc : br_taken? br_target : seq_pc;
+++assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ex_entry : ertn_flush? ertn_pc : (br_taken && ~br_stall) ? br_target : seq_pc;
+++
+++/*
+++µ±³öÏÖÒì³£Èë¿Úpc¡¢Òì³£·µ»ØpcºÍÌø×ªpcÊ±£¬ĞÅºÅºÍpc¿ÉÄÜÖ»ÄÜÎ¬³ÖÒ»ÅÄ£¬
+++µ«ÔÚreqÊÕµ½addr_okÇ°ĞèÒªÎ¬³ÖÈ¡Ö·µØÖ·²»±ä
+++*/
+++
+++reg if_keep_pc;
+++reg [31:0] br_delay_reg;
+++always @(posedge clk)
+++    begin
+++        if(reset)
+++            if_keep_pc <= 1'b0;
+++        else if(inst_sram_addr_ok && ~deal_with_cancel && ~wb_ex && ~ertn_flush)
+++            if_keep_pc <= 1'b0;
+++        else if((br_taken && ~br_stall) || wb_ex || ertn_flush)
+++            if_keep_pc <= 1'b1;
+++    end
+++
+++always @(posedge clk)
+++    begin
+++        if(reset)
+++            br_delay_reg <= 32'b0;
+++        else if(wb_ex)
+++            br_delay_reg <= ex_entry;
+++        else if(ertn_flush)
+++            br_delay_reg <= ertn_pc;
+++        else if(br_taken && ~br_stall)
+++            br_delay_reg <= br_target;
+++    end
+++
++    
++ always @(posedge clk)
++     begin
++@@ -80,16 +191,19 @@ always @(posedge clk)
++ /*----------------------------Link to inst_ram---------------------*/
++ 
++ /*
++-    output inst_sram_en,                
++-    output [3:0] inst_sram_wen,         
++-    output [31:0] inst_sram_addr,       
++-    output [31:0] inst_sram_wdata,      
++-    input [31:0] inst_sram_rdata       
+++    output          inst_sram_req,
+++    output          inst_sram_wr,
+++    output [1:0]    inst_sram_size,
+++    output [3:0]    inst_sram_wstrb,
+++    output [31:0]   inst_sram_addr,
+++    output [31:0]   inst_sram_wdata,   
++ */
++ 
++-assign inst_sram_en = pre_if_to_fs_valid && ds_allow_in;
++-assign inst_sram_wen = 4'b0;    //fetch½×¶Î²»Ğ´
++-assign inst_sram_addr = next_pc;
+++//inst_sram_reqÔÚÉÏÃæ¸³Öµ
+++assign inst_sram_wr    = 1'b0;    //fetch½×¶ÎÖ»¶Á²»Ğ´
+++assign inst_sram_size  = 2'b10;   //fetch½×¶Î·ÃÎÊ4×Ö½Ú
+++assign inst_sram_wstrb = 4'b0;    //fetch½×¶ÎwstrbÎŞÒâÒå
+++assign inst_sram_addr  = next_pc;
++ assign inst_sram_wdata = 32'b0;
++ 
++ /*----------------------------------------------------------------*/
++@@ -100,10 +214,14 @@ assign fetch_inst = inst_sram_rdata;
++ 
++ //task13 add ADEF fetch_addr_exception
++ wire fs_ex_ADEF;
++-//fs_ex_ADEF happen when inst_sram_en and last 2 bits of inst_sram_addr are not 2'b00
++-assign fs_ex_ADEF = inst_sram_en && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
++-
++-assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
+++//fs_ex_ADEF happen when ~inst_sram_wr and last 2 bits of inst_sram_addr are not 2'b00
+++assign fs_ex_ADEF = ~inst_sram_wr && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
+++
+++//assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
+++assign fs_to_ds_bus[31:0] = fetch_pc;
+++//µ±Ôİ´æÖ¸Áî»º´æÓĞĞ§Ê±£¬´«Èëtemp_inst,ÎŞĞ§Ê±Õı³£´«Èë fetch_inst
+++assign fs_to_ds_bus[63:32] = (temp_inst == 0) ? fetch_inst : temp_inst;
+++assign fs_to_ds_bus[64:64] = fs_ex_ADEF;
++ 
++ /*----------------------------------------------------------------*/
++ 
++diff --git a/cyt_code/for_patch/MEM.v b/cyt_code/for_patch/MEM.v
++index 1593ed8..425c211 100644
++--- a/cyt_code/for_patch/MEM.v
+++++ b/cyt_code/for_patch/MEM.v
++@@ -17,6 +17,7 @@ module stage4_MEM(
++     output [`WIDTH_MS_TO_DS_BUS-1:0] ms_to_ds_bus,
++     output                           if_ms_ex,
++     
+++    input        data_sram_data_ok,
++     input [31:0] data_sram_rdata
++ );
++ 
++@@ -30,7 +31,6 @@ assign es_to_ms_bus[70:39] = es_calcu_result;
++ assign es_to_ms_bus[72:71] = es_unaligned_addr;
++ assign es_to_ms_bus[77:73] = es_ld_op;
++ 
++-//task12
++ //task12
++ assign es_to_ms_bus[91:78] = es_csr_rvalue;
++ assign es_to_ms_bus[123:92] = es_csr_wmask;
++@@ -46,6 +46,7 @@ assign es_to_ms_bus[177:177] = es_ex_ALE;
++ assign es_to_ms_bus[178:178] = es_ex_break;
++ assign es_to_ms_bus[179:179] = es_has_int;
++ assign es_to_ms_bus[211:180] = es_vaddr;
+++assign es_to_ms_bus[212:212] = es_mem_we;
++ */
++ 
++ wire [31:0] ms_pc;
++@@ -71,6 +72,7 @@ wire        ms_ex_ALE;
++ wire        ms_ex_break;
++ wire        ms_has_int;
++ wire [31:0] ms_vaddr;
+++wire        ms_mem_we;
++ 
++ reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
++ always @(posedge clk)
++@@ -81,11 +83,9 @@ always @(posedge clk)
++             es_to_ms_bus_reg <= 0;
++         else if(es_to_ms_valid && ms_allow_in)
++             es_to_ms_bus_reg <= es_to_ms_bus;
++-        else
++-            es_to_ms_bus_reg <= 0;
++     end 
++ 
++-assign {ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
+++assign {ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
++         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
++         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
++         ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
++@@ -145,7 +145,9 @@ assign ms_to_ws_bus[203:172] = ms_vaddr;
++ reg ms_valid;    
++ 
++ wire ms_ready_go;
++-assign ms_ready_go = 1'b1;
+++//µ±ÊÇloadÖ¸ÁîÊ±£¬ĞèÒªµÈ´ıÊı¾İÎÕÊÖ
+++//data_okÀ­¸ßÊ±±íÊ¾storeÒÑ¾­Ğ´ÈëÊı¾İ »ò loadÒÑ¾­È¡µ½Êı¾İ£¬½«ms_ready_goÀ­¸ß
+++assign ms_ready_go = if_ms_ex ? 1'b1 : (ms_mem_we || ms_res_from_mem) ? data_sram_data_ok : 1'b1;
++ assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
++ /*
++ add conditions & ~ertn_flush & ~wb_ex
++@@ -173,7 +175,10 @@ always @(posedge clk)
++ 
++ /*--------------------deliver ms_to_ds_bus-------------------*/
++ //task12 add ms_csr_write, ms_csr_num
++-assign ms_to_ds_bus = {ms_gr_we,ms_dest,ms_final_result,
+++
+++wire if_ms_load;
+++assign if_ms_load = ms_res_from_mem;
+++assign ms_to_ds_bus = {ms_to_ws_valid,ms_valid,ms_gr_we,ms_dest,if_ms_load,ms_final_result,
++                        ms_csr_write, ms_csr_num, ms_csr};
++ /*-------------------------------------------------------*/
++ 
++diff --git a/cyt_code/for_patch/WB.v b/cyt_code/for_patch/WB.v
++index 4489d07..0608aa9 100644
++--- a/cyt_code/for_patch/WB.v
+++++ b/cyt_code/for_patch/WB.v
++@@ -86,7 +86,7 @@ always @(posedge clk)
++             ms_to_ws_bus_reg <= 0;
++         else if(ms_to_ws_valid && ws_allow_in)
++             ms_to_ws_bus_reg <= ms_to_ws_bus;
++-        else
+++        else if((wb_ex || ertn_flush) && ws_valid)
++             ms_to_ws_bus_reg <= 0;
++     end 
++ 
++diff --git a/cyt_code/for_patch/mycpu_top.v b/cyt_code/for_patch/mycpu_top.v
++index 2af5dfa..77cb9f2 100644
++--- a/cyt_code/for_patch/mycpu_top.v
+++++ b/cyt_code/for_patch/mycpu_top.v
++@@ -11,16 +11,26 @@ module mycpu_top(
++     input  wire        clk,
++     input  wire        resetn,
++     // inst sram interface
++-    output wire        inst_sram_en,
++-    output wire [3:0]  inst_sram_we,      
+++
+++    output wire        inst_sram_req,
+++    output wire        inst_sram_wr,
+++    output wire [1:0]  inst_sram_size,
+++    output wire [3:0]  inst_sram_wstrb,   
++     output wire [31:0] inst_sram_addr,
++     output wire [31:0] inst_sram_wdata,
+++    input  wire        inst_sram_addr_ok,
+++    input  wire        inst_sram_data_ok,
++     input  wire [31:0] inst_sram_rdata,
++     // data sram interface
++-    output wire        data_sram_en,
++-    output wire [3:0]  data_sram_we,
+++
+++    output wire        data_sram_req,
+++    output wire        data_sram_wr,
+++    output wire [1:0]  data_sram_size,
+++    output wire [3:0]  data_sram_wstrb,
++     output wire [31:0] data_sram_addr,
++     output wire [31:0] data_sram_wdata,
+++    input  wire        data_sram_addr_ok,
+++    input  wire        data_sram_data_ok,
++     input  wire [31:0] data_sram_rdata,
++     // trace debug interface
++     output wire [31:0] debug_wb_pc,
++@@ -107,10 +117,15 @@ stage1_IF fetch(
++     .br_bus             (br_bus),
++     .fs_to_ds_valid     (fs_to_ds_valid),
++     .fs_to_ds_bus       (fs_to_ds_bus),
++-    .inst_sram_en       (inst_sram_en),
++-    .inst_sram_wen      (inst_sram_we),
+++
+++    .inst_sram_req      (inst_sram_req),
+++    .inst_sram_wr       (inst_sram_wr),
+++    .inst_sram_size     (inst_sram_size),
+++    .inst_sram_wstrb    (inst_sram_wstrb),
++     .inst_sram_addr     (inst_sram_addr),
++     .inst_sram_wdata    (inst_sram_wdata),
+++    .inst_sram_addr_ok  (inst_sram_addr_ok),
+++    .inst_sram_data_ok  (inst_sram_data_ok),
++     .inst_sram_rdata    (inst_sram_rdata)
++ );
++ 
++@@ -139,7 +154,9 @@ stage2_ID decode(
++     .br_bus             (br_bus),
++ 
++     .es_to_ds_bus       (es_to_ds_bus),
++-    .ms_to_ds_bus       (ms_to_ds_bus)
+++    .ms_to_ds_bus       (ms_to_ds_bus),
+++
+++    .data_sram_data_ok  (data_sram_data_ok)
++ );
++ 
++ /*----------------------------------------------------------*/
++@@ -164,11 +181,16 @@ stage3_EX ex(
++     .es_to_ds_bus       (es_to_ds_bus),
++     .if_ms_ex      (if_ms_ex),
++ 
++-    .data_sram_en       (data_sram_en),
++-    .data_sram_wen      (data_sram_we),
+++    .data_sram_req      (data_sram_req),
+++    .data_sram_wr       (data_sram_wr),
+++    .data_sram_size     (data_sram_size),
+++    .data_sram_wstrb    (data_sram_wstrb),
++     .data_sram_addr     (data_sram_addr),
++     .data_sram_wdata    (data_sram_wdata),
++ 
+++    .data_sram_addr_ok  (data_sram_addr_ok),
+++    .data_sram_data_ok  (data_sram_data_ok),
+++
++     .global_time_cnt    (global_time_cnt)
++ );
++ 
++@@ -193,6 +215,7 @@ stage4_MEM mem(
++     .ms_to_ds_bus       (ms_to_ds_bus),
++     .if_ms_ex           (if_ms_ex),
++ 
+++    .data_sram_data_ok  (data_sram_data_ok),
++     .data_sram_rdata    (data_sram_rdata)
++ );
++ 
++diff --git a/cyt_code/for_patch/width.vh b/cyt_code/for_patch/width.vh
++index 79cdf01..b1874b0 100644
++--- a/cyt_code/for_patch/width.vh
+++++ b/cyt_code/for_patch/width.vh
++@@ -1,11 +1,11 @@
++-`define WIDTH_BR_BUS       34
+++`define WIDTH_BR_BUS       35
++ `define WIDTH_FS_TO_DS_BUS 65
++ `define WIDTH_DS_TO_ES_BUS 235
++-`define WIDTH_ES_TO_MS_BUS 212
+++`define WIDTH_ES_TO_MS_BUS 213
++ `define WIDTH_MS_TO_WS_BUS 204
++ `define WIDTH_WS_TO_DS_BUS 55
++-`define WIDTH_ES_TO_DS_BUS 55
++-`define WIDTH_MS_TO_DS_BUS 54
+++`define WIDTH_ES_TO_DS_BUS 56
+++`define WIDTH_MS_TO_DS_BUS 57
++ 
++ `define WIDTH_CSR_NUM 14
++ 
++-- 
++2.37.2.windows.2
++
+-- 
+2.37.2.windows.2
+
