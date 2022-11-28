@@ -194,7 +194,11 @@ reg [31:0] fetch_pc;
 wire [31:0] seq_pc;     //顺序取址
 assign seq_pc = (fetch_pc + 4);
 wire [31:0] next_pc;    //nextpc来自seq或br
+<<<<<<< HEAD
 assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ex_entry : ertn_flush ? ertn_pc : 
+=======
+assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ((in_ex_tlb_refill)? ex_tlbentry : ex_entry) : ertn_flush ? ertn_pc : 
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
                  tlb_reflush ? tlb_reflush_pc : (br_taken && ~br_stall) ? br_target : seq_pc;
 
 wire [31:0] next_pc_dt;   //dt --> directly translate
@@ -326,7 +330,11 @@ assign fetch_inst = inst_sram_rdata;
 //task13 add ADEF fetch_addr_exception
 wire fs_ex_ADEF;
 //fs_ex_ADEF happen when ~inst_sram_wr and last 2 bits of inst_sram_addr are not 2'b00
+<<<<<<< HEAD
 assign fs_ex_ADEF = (if_ppt && next_pc[31]) || (next_pc_p[1] | next_pc_p[0]);  //last two bit != 0 <==> error address
+=======
+assign fs_ex_ADEF = (if_ppt && next_pc[31]) || (~inst_sram_wr && (next_pc_p[1] | next_pc_p[0]));  //last two bit != 0 <==> error address
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 assign fs_to_ds_bus[31:0] = fetch_pc;
 //当暂存指令缓存有效时，传入temp_inst,无效时正常传入 fetch_inst

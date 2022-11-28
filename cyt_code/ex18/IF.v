@@ -7,7 +7,10 @@ module stage1_IF(
     input wb_ex,
     input [31:0] ertn_pc,
     input [31:0] ex_entry,
+<<<<<<< HEAD
     input [31:0] ex_tlbentry,
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
     input ds_allow_in,
     input [`WIDTH_BR_BUS-1:0] br_bus,
@@ -23,6 +26,7 @@ module stage1_IF(
 
     input           inst_sram_addr_ok,
     input           inst_sram_data_ok,
+<<<<<<< HEAD
     input  [31:0]   inst_sram_rdata,
 
     input tlb_zombie,
@@ -62,6 +66,9 @@ module stage1_IF(
     input s0_v,
 
     input in_ex_tlb_refill
+=======
+    input  [31:0]   inst_sram_rdata
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 /*--------------------------------valid-----------------------------*/
@@ -114,7 +121,11 @@ always @(posedge clk)
             fs_valid <= 1'b0;
         else if(fs_allow_in)
             begin
+<<<<<<< HEAD
                 if(wb_ex || ertn_flush || tlb_reflush)
+=======
+                if(wb_ex || ertn_flush)
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
                     /*对应2.1情况——IF级没有有效指令或
                     有有效指令但将要流向ID级，若收到cancel
                     则将下一拍fs_vaild置0*/
@@ -142,7 +153,11 @@ always @(posedge clk)
             temp_inst <= 0;
         else if(fs_ready_go)
             begin
+<<<<<<< HEAD
                 if(wb_ex || ertn_flush || tlb_reflush)
+=======
+                if(wb_ex || ertn_flush)
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
                     //当cancel时，将缓存指令清0
                     //对应2.2.1情况
                     temp_inst <= 0;
@@ -168,10 +183,17 @@ always @(posedge clk)
     begin
         if(reset)
             deal_with_cancel <= 1'b0;
+<<<<<<< HEAD
         else if((wb_ex || ertn_flush || tlb_reflush) && pre_if_to_fs_valid)
             //pre_if_to_fs_valid 对应1.2情况——pre-if发送的地址正好被接收
             deal_with_cancel <= 1'b1;
         else if(~fs_allow_in && (wb_ex || ertn_flush || tlb_reflush) && ~fs_ready_go)
+=======
+        else if((wb_ex || ertn_flush) && pre_if_to_fs_valid)
+            //pre_if_to_fs_valid 对应1.2情况——pre-if发送的地址正好被接收
+            deal_with_cancel <= 1'b1;
+        else if(~fs_allow_in && (wb_ex || ertn_flush) && ~fs_ready_go)
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
             //~fs_allow_in 且 ~fs_ready_go 对应2.2.2情况——IF级正在等待data_ok
             deal_with_cancel <= 1'b1;
         else if(inst_sram_data_ok)
@@ -194,6 +216,7 @@ reg [31:0] fetch_pc;
 wire [31:0] seq_pc;     //顺序取址
 assign seq_pc = (fetch_pc + 4);
 wire [31:0] next_pc;    //nextpc来自seq或br
+<<<<<<< HEAD
 assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ((in_ex_tlb_refill)? ex_tlbentry : ex_entry) : ertn_flush ? ertn_pc : 
                  tlb_reflush ? tlb_reflush_pc : (br_taken && ~br_stall) ? br_target : seq_pc;
 
@@ -254,6 +277,9 @@ assign if_ppt = if_indt && ~(if_dmw0 | if_dmw1);
 assign fs_ex_fetch_tlb_refill = if_ppt & ~s0_found;
 assign fs_ex_inst_invalid = if_ppt & s0_found & ~s0_v;
 assign fs_ex_fetch_plv_invalid = if_ppt & s0_found & s0_v & (plv > s0_plv);
+=======
+assign next_pc = if_keep_pc ? br_delay_reg : wb_ex ? ex_entry : ertn_flush? ertn_pc : (br_taken && ~br_stall) ? br_target : seq_pc;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*
 当出现异常入口pc、异常返回pc和跳转pc时，信号和pc可能只能维持一拍，
@@ -266,9 +292,15 @@ always @(posedge clk)
     begin
         if(reset)
             if_keep_pc <= 1'b0;
+<<<<<<< HEAD
         else if(inst_sram_addr_ok && ~deal_with_cancel && ~wb_ex && ~ertn_flush && ~tlb_reflush)
             if_keep_pc <= 1'b0;
         else if((br_taken && ~br_stall) || wb_ex || ertn_flush || tlb_reflush)
+=======
+        else if(inst_sram_addr_ok && ~deal_with_cancel && ~wb_ex && ~ertn_flush)
+            if_keep_pc <= 1'b0;
+        else if((br_taken && ~br_stall) || wb_ex || ertn_flush)
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
             if_keep_pc <= 1'b1;
     end
 
@@ -276,14 +308,20 @@ always @(posedge clk)
     begin
         if(reset)
             br_delay_reg <= 32'b0;
+<<<<<<< HEAD
         else if(wb_ex && in_ex_tlb_refill)
             br_delay_reg <= ex_tlbentry;
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
         else if(wb_ex)
             br_delay_reg <= ex_entry;
         else if(ertn_flush)
             br_delay_reg <= ertn_pc;
+<<<<<<< HEAD
         else if(tlb_reflush)
             br_delay_reg <= tlb_reflush_pc;
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
         else if(br_taken && ~br_stall)
             br_delay_reg <= br_target;
     end
@@ -310,11 +348,19 @@ always @(posedge clk)
     output [31:0]   inst_sram_wdata,   
 */
 
+<<<<<<< HEAD
 //inst_sram_req锟斤拷锟斤拷锟芥赋值
 assign inst_sram_wr    = 1'b0;    //fetch阶段只读不写
 assign inst_sram_size  = 2'b10;   //fetch阶段访问4字节
 assign inst_sram_wstrb = 4'b0;    //fetch阶段wstrb无意义
 assign inst_sram_addr  = next_pc_p;
+=======
+//inst_sram_req在上面赋值
+assign inst_sram_wr    = 1'b0;    //fetch阶段只读不写
+assign inst_sram_size  = 2'b10;   //fetch阶段访问4字节
+assign inst_sram_wstrb = 4'b0;    //fetch阶段wstrb无意义
+assign inst_sram_addr  = next_pc;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign inst_sram_wdata = 32'b0;
 
 /*----------------------------------------------------------------*/
@@ -326,16 +372,25 @@ assign fetch_inst = inst_sram_rdata;
 //task13 add ADEF fetch_addr_exception
 wire fs_ex_ADEF;
 //fs_ex_ADEF happen when ~inst_sram_wr and last 2 bits of inst_sram_addr are not 2'b00
+<<<<<<< HEAD
 assign fs_ex_ADEF = ~inst_sram_wr && (next_pc_p[1] | next_pc_p[0]);  //last two bit != 0 <==> error address
 
+=======
+assign fs_ex_ADEF = ~inst_sram_wr && (next_pc[1] | next_pc[0]);  //last two bit != 0 <==> error address
+
+//assign fs_to_ds_bus = {fs_ex_ADEF, fetch_inst, fetch_pc};
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign fs_to_ds_bus[31:0] = fetch_pc;
 //当暂存指令缓存有效时，传入temp_inst,无效时正常传入 fetch_inst
 assign fs_to_ds_bus[63:32] = (temp_inst == 0) ? fetch_inst : temp_inst;
 assign fs_to_ds_bus[64:64] = fs_ex_ADEF;
+<<<<<<< HEAD
 assign fs_to_ds_bus[65:65] = tlb_zombie;
 assign fs_to_ds_bus[66:66] = fs_ex_fetch_tlb_refill;
 assign fs_to_ds_bus[67:67] = fs_ex_inst_invalid;
 assign fs_to_ds_bus[68:68] = fs_ex_fetch_plv_invalid;
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*----------------------------------------------------------------*/
 

@@ -18,11 +18,15 @@ module stage4_MEM(
     output                           if_ms_ex,
     
     input        data_sram_data_ok,
+<<<<<<< HEAD
     input [31:0] data_sram_rdata,
 
     //tlb crush
     output       if_ms_crush_with_tlbsrch,
     input        tlb_reflush
+=======
+    input [31:0] data_sram_rdata
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 /*-----------------------recerive es_to_ms_bus----------------*/
@@ -63,6 +67,7 @@ wire        ms_s1_found;
 wire [3:0]  ms_s1_index;
 
 wire [4:0]  ms_inst_invtlb_op;
+<<<<<<< HEAD
 wire        ms_tlb_zombie;
 wire [9:0]  ms_s1_asid;
 
@@ -75,23 +80,33 @@ wire ms_ex_load_invalid;
 wire ms_ex_store_invalid;
 wire ms_ex_loadstore_plv_invalid;
 wire ms_ex_store_dirty;
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             es_to_ms_bus_reg <= 0;
+<<<<<<< HEAD
         else if(ertn_flush || wb_ex || tlb_reflush)
+=======
+        else if(ertn_flush || wb_ex)
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
             es_to_ms_bus_reg <= 0;
         else if(es_to_ms_valid && ms_allow_in)
             es_to_ms_bus_reg <= es_to_ms_bus;
     end 
 
+<<<<<<< HEAD
 assign {ms_ex_store_dirty, ms_ex_loadstore_plv_invalid, ms_ex_store_invalid,
         ms_ex_load_invalid, ms_ex_loadstore_tlb_fill, ms_ex_fetch_plv_invalid,
         ms_ex_inst_invalid, ms_ex_fetch_tlb_refill,
         ms_s1_asid, ms_tlb_zombie,
         ms_inst_invtlb_op,ms_s1_index, ms_s1_found, ms_inst_invtlb, ms_inst_tlbfill, ms_inst_tlbwr, ms_inst_tlbrd, ms_inst_tlbsrch,
+=======
+assign {ms_inst_invtlb_op,ms_s1_index, ms_s1_found, ms_inst_invtlb, ms_inst_tlbfill, ms_inst_tlbwr, ms_inst_tlbrd, ms_inst_tlbsrch,
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
         ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
@@ -158,6 +173,7 @@ assign ms_to_ws_bus[209:209] = ms_s1_found;    //tlbsrch got
 assign ms_to_ws_bus[213:210] = ms_s1_index;    //tlbsrch index
 
 assign ms_to_ws_bus[218:214] = ms_inst_invtlb_op;
+<<<<<<< HEAD
 assign ms_to_ws_bus[219:219] = ms_tlb_zombie;
 assign ms_to_ws_bus[229:220] = ms_s1_asid;
 
@@ -169,6 +185,8 @@ assign ms_to_ws_bus[234:234] = ms_ex_load_invalid;
 assign ms_to_ws_bus[235:235] = ms_ex_store_invalid;
 assign ms_to_ws_bus[236:236] = ms_ex_loadstore_plv_invalid;
 assign ms_to_ws_bus[237:237] = ms_ex_store_dirty;
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
@@ -190,7 +208,11 @@ when ms_to_ws_valid down, ws will not receive bus_reg
 and when ertn_flush / wb_ex disappear in next clk, 
 ms_to_ws_valid will raise again 
 */
+<<<<<<< HEAD
 assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex & ~tlb_reflush;
+=======
+assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 always @(posedge clk)
     begin
@@ -214,6 +236,7 @@ assign ms_to_ds_bus = {ms_to_ws_valid,ms_valid,ms_gr_we,ms_dest,if_ms_load,ms_fi
 /*--------------------deliver if_ms_ex to es------------------*/
 //this signal is for helping ex_stage to judge if it should cancel inst_store due to exception
 // in task 12 we just consider syscall
+<<<<<<< HEAD
 assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int
                 || ms_ex_fetch_tlb_refill || ms_ex_inst_invalid || ms_ex_fetch_plv_invalid
                 || ms_ex_loadstore_tlb_fill || ms_ex_load_invalid || ms_ex_store_invalid
@@ -234,6 +257,9 @@ assign if_tlbrd_crush_with_tlbsrch = ms_inst_tlbrd;
 
 assign if_ms_crush_with_tlbsrch = if_csr_crush_with_tlbsrch
                                 || if_tlbrd_crush_with_tlbsrch;
+=======
+assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*-------------------------------------------------------*/
 

@@ -1,8 +1,15 @@
 `define WIDTH_BR_BUS       35
+<<<<<<< HEAD
 `define WIDTH_FS_TO_DS_BUS 69
 `define WIDTH_DS_TO_ES_BUS 249
 `define WIDTH_ES_TO_MS_BUS 247
 `define WIDTH_MS_TO_WS_BUS 238
+=======
+`define WIDTH_FS_TO_DS_BUS 65
+`define WIDTH_DS_TO_ES_BUS 245
+`define WIDTH_ES_TO_MS_BUS 228
+`define WIDTH_MS_TO_WS_BUS 219
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 `define WIDTH_WS_TO_DS_BUS 55
 `define WIDTH_ES_TO_DS_BUS 56
 `define WIDTH_MS_TO_DS_BUS 57
@@ -32,9 +39,12 @@
 `define CSR_TICLR 14'h44
 `define CSR_TLBRENTRY 14'h88
 
+<<<<<<< HEAD
 `define CSR_DMW0 14'h180
 `define CSR_DMW1 14'h181
 
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 //CSR分区
 
 //CSR_CRMD

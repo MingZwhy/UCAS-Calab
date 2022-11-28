@@ -124,6 +124,7 @@ reg [TLBNUM-1:0]    tlb_g;      //patch:这里定义为16位的寄存器，方便wr中进行按位
 reg [19:0]          tlb_ppn0    [TLBNUM-1:0];
 reg [1:0]           tlb_plv0    [TLBNUM-1:0];
 reg [1:0]           tlb_mat0    [TLBNUM-1:0];
+<<<<<<< HEAD
 reg  [TLBNUM-1:0]               tlb_d0      ;
 reg  [TLBNUM-1:0]               tlb_v0      ;
 reg [19:0]          tlb_ppn1    [TLBNUM-1:0];
@@ -131,6 +132,15 @@ reg [1:0]           tlb_plv1    [TLBNUM-1:0];
 reg [1:0]           tlb_mat1    [TLBNUM-1:0];
 reg  [TLBNUM-1:0]               tlb_d1      ;
 reg  [TLBNUM-1:0]               tlb_v1      ;
+=======
+reg                 tlb_d0      [TLBNUM-1:0];
+reg                 tlb_v0      [TLBNUM-1:0];
+reg [19:0]          tlb_ppn1    [TLBNUM-1:0];
+reg [1:0]           tlb_plv1    [TLBNUM-1:0];
+reg [1:0]           tlb_mat1    [TLBNUM-1:0];
+reg                 tlb_d1      [TLBNUM-1:0];
+reg                 tlb_v1      [TLBNUM-1:0];
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*
 match requirement1: 

@@ -9,7 +9,10 @@ module csr_reg(
     output             [31:0]     csr_rvalue,        //读数据
     output             [31:0]     ertn_pc,
     output             [31:0]     ex_entry,
+<<<<<<< HEAD
     output             [31:0]     ex_tlbentry,
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
     input                         csr_we,            //写使能
     input              [31:0]     csr_wmask,         //写掩码
@@ -81,6 +84,7 @@ module csr_reg(
     input        tlbrd_tlbelo1_v,
 
     input [5:0]  tlbrd_tlbidx_ps,
+<<<<<<< HEAD
     input [9:0]  tlbrd_asid_asid,
 
     //for exception
@@ -107,6 +111,11 @@ module csr_reg(
     output [2:0] tlbdmw1_vseg,
 
     output [5:0] stat_ecode
+=======
+    input [9:0]  tlbrd_asid_asid
+
+    //for tlbwr
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 /*
@@ -157,8 +166,11 @@ always @(posedge clk)
                          | ~csr_wmask[`CSR_CRMD_PLV] & csr_crmd_plv;
     end
 
+<<<<<<< HEAD
 assign crmd_plv = csr_crmd_plv;
 
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 //当前全局中断使能
 /*
 1'b1：可中断    1'b0：屏蔽中断
@@ -189,6 +201,7 @@ always @(posedge clk)
     begin
         if(reset)
             csr_crmd_da <= 1'b1;
+<<<<<<< HEAD
         else if(csr_we && csr_num == `CSR_CRMD)
             csr_crmd_da <= csr_wmask[`CSR_CRMD_DA] & csr_wvalue[`CSR_CRMD_DA]
                         | ~csr_wmask[`CSR_CRMD_DA] & csr_crmd_da;
@@ -243,6 +256,16 @@ assign   crmd_datf  = csr_crmd_datf;
 assign   crmd_datm  = csr_crmd_datm;
 
 
+=======
+    end
+
+//暂未使用
+reg csr_crmd_pg;
+reg [1:0] csr_crmd_datf;
+reg [1:0] csr_crmd_datm;
+reg [22:0] csr_crmd_zero;
+
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 /*---------------------------------------------------------------------*/
 
 /*--------------------------例外前模式信息 PRMD-------------------------*/
@@ -303,6 +326,10 @@ reg [18:0] csr_ecgh_zero;
 //第11位对应定时器中断TI的状态位
 //第12位对应核间中断
 reg [12:0] csr_estat_is;
+<<<<<<< HEAD
+=======
+
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 always @(posedge clk)
     begin
         //软中断位 -- RW
@@ -336,7 +363,11 @@ reg [2:0] csr_estat_left;
 //中断类型1级2级编码
 reg [5:0] csr_estat_ecode;
 reg [8:0] csr_estat_esubcode;
+<<<<<<< HEAD
 assign stat_ecode = csr_estat_ecode;
+=======
+
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 always @(posedge clk)
     begin
         if(wb_ex)
@@ -378,17 +409,25 @@ ECODE_ADEF: 取值地址错例外
 ECODE_ADEM：访存指令地址错例外
 ECODE_ALE：地址非对齐例外
 */
+<<<<<<< HEAD
 assign wb_ex_addr_err = (wb_ecode == `ECODE_ADE) || (wb_ecode == `ECODE_ALE) || 
                         (wb_ecode == `ECODE_TLBR) || (wb_ecode == `ECODE_PIL) ||
                         (wb_ecode == `ECODE_PIS) || (wb_ecode == `ECODE_PIF) ||
                         (wb_ecode == `ECODE_PME) || (wb_ecode == `ECODE_PPI);
+=======
+assign wb_ex_addr_err = (wb_ecode == `ECODE_ADE) || (wb_ecode == `ECODE_ALE);
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 always @(posedge clk)
     begin
         if(wb_ex && wb_ex_addr_err)
             csr_badv_vaddr <= (wb_ecode == `ECODE_ADE && 
+<<<<<<< HEAD
                                wb_esubcode == `ESUBCODE_ADEF) || 
                                (wb_ecode == `ECODE_PIF) ? wb_pc : wb_vaddr;
+=======
+                               wb_esubcode == `ESUBCODE_ADEF) ? wb_pc : wb_vaddr;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     end
 
 /*---------------------------------------------------------------------*/
@@ -560,7 +599,11 @@ always @(posedge clk)
         if(reset)
             begin
                 TLBIDX_INDEX    <= 0;
+<<<<<<< HEAD
                 TLBIDX_NE       <= 1'b1;   //初始表项为空 (1'b1)
+=======
+                TLBIDX_NE       <= 1'b0;   //初始表项为空 (1'b1)
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
                 TLBIDX_PS        <= 0;
             end
         else if(csr_we && csr_num == `CSR_TLBIDX)
@@ -595,7 +638,11 @@ always @(posedge clk)
                 else
                 begin
                     TLBIDX_PS <= 0;
+<<<<<<< HEAD
                     TLBIDX_NE <= 1'b1;
+=======
+                    TLBIDX_NE <= 1'B1;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
                 end
             end
     end
@@ -607,9 +654,13 @@ assign tlbidx_ne = TLBIDX_NE;
 
 //2:TLBEHI
 reg [18:0]  TLBEHI_VPPN;
+<<<<<<< HEAD
 wire ex_elbehi;
 assign ex_elbehi = (wb_ecode == `ECODE_PIL) || (wb_ecode == `ECODE_PIS) || (wb_ecode == `ECODE_PIF) || 
                    (wb_ecode == `ECODE_PME) || (wb_ecode == `ECODE_PPI) || (wb_ecode == `ECODE_TLBR);
+=======
+
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 always @(posedge clk)
     begin
         if(reset)
@@ -628,8 +679,11 @@ always @(posedge clk)
                     //若无效，则需置0
                     TLBEHI_VPPN <= 0;
             end
+<<<<<<< HEAD
         else if(wb_ex && ex_elbehi)
             TLBEHI_VPPN <=  (wb_ecode == `ECODE_PIF) ? wb_pc[31:13] : wb_vaddr[31:13];
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     end
 
 assign tlbehi_vppn = TLBEHI_VPPN;
@@ -775,16 +829,25 @@ always @(posedge clk)
                 if(tlbrd_valid)
                     ASID_ASID <= tlbrd_asid_asid;
                 else
+<<<<<<< HEAD
                     ASID_ASID <= 0;
             end
     end
 
 assign tlbasid_asid = ASID_ASID;
+=======
+                    ASID_ASID <= ASID_ASID;
+            end
+    end
+
+//assign asid_asid = ASID_ASID;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 //6:TLBRENTRY
 reg [5:0]   TLBRENTRY_LOW;
 reg [25:0]  TLBRENTRY_HIGH;
 
+<<<<<<< HEAD
 always @(posedge clk)
 begin
     if(reset)
@@ -797,6 +860,8 @@ begin
                         |         ~csr_wmask[`TLBRENTRY_HIGH] & TLBRENTRY_HIGH;
 end
 
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 //直接映射配置窗口
 
 //8:DMW0
@@ -809,6 +874,7 @@ reg [2:0]   DMW0_PSEG;
 reg         DMW0_ZERO3;
 reg [2:0]   DMW0_VSEG;
 
+<<<<<<< HEAD
 always @(posedge clk)
     begin
         if(reset)
@@ -844,6 +910,8 @@ assign tlbdmw0_mat = DMW0_MAT;
 assign tlbdmw0_pseg = DMW0_PSEG;
 assign tlbdmw0_vseg = DMW0_VSEG;
 
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 //9:DMW1
 reg         DMW1_PLV0;
 reg [1:0]   DMW1_ZERO1;
@@ -854,6 +922,7 @@ reg [2:0]   DMW1_PSEG;
 reg         DMW1_ZERO3;
 reg [2:0]   DMW1_VSEG;
 
+<<<<<<< HEAD
 always @(posedge clk)
     begin
         if(reset)
@@ -889,6 +958,8 @@ assign tlbdmw1_mat = DMW1_MAT;
 assign tlbdmw1_pseg = DMW1_PSEG;
 assign tlbdmw1_vseg = DMW1_VSEG;
 
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 /*---------------------------------------------------------------------*/
 
 /*-----------------------rvalue----------------------------------------*/
@@ -912,9 +983,14 @@ wire [31:0] csr_tlbidx_rvalue;
 wire [31:0] csr_tlbehi_rvalue;
 wire [31:0] csr_tlbelo0_rvalue;
 wire [31:0] csr_tlbelo1_rvalue;
+<<<<<<< HEAD
 wire [31:0] csr_tlbrentry_rvalue;
 
 assign csr_crmd_rvalue = {23'b0, csr_crmd_datm, csr_crmd_datf, csr_crmd_pg, csr_crmd_da, csr_crmd_ie, csr_crmd_plv};
+=======
+
+assign csr_crmd_rvalue = {28'b0, csr_crmd_da, csr_crmd_ie, csr_crmd_plv};
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign csr_prmd_rvalue = {29'b0, csr_prmd_pie, csr_prmd_pplv};
 assign csr_ecfg_rvalue = {19'b0, csr_ecfg_lie};
 assign csr_estat_rvalue = {1'b0, csr_estat_esubcode, csr_estat_ecode, 
@@ -935,8 +1011,11 @@ assign csr_tlbehi_rvalue = {TLBEHI_VPPN,13'b0};
 assign csr_tlbelo0_rvalue = {4'b0, TLBELO0_PPN, 1'b0, TLBELO0_G, TLBELO0_MAT, TLBELO0_PLV, TLBELO0_D, TLBELO0_V};
 assign csr_tlbelo1_rvalue = {4'b0, TLBELO1_PPN, 1'b0, TLBELO1_G, TLBELO1_MAT, TLBELO1_PLV, TLBELO1_D, TLBELO1_V};
 
+<<<<<<< HEAD
 assign csr_tlbrentry_rvalue = {TLBRENTRY_HIGH, TLBRENTRY_LOW};
 
+=======
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
                   | {32{csr_num==`CSR_PRMD}} & csr_prmd_rvalue
                   | {32{csr_num==`CSR_ECFG}} & csr_ecfg_rvalue
@@ -955,8 +1034,12 @@ assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
                   | {32{csr_num==`CSR_SAVE3}} & csr_save3_rvalue
                   | {32{csr_num==`CSR_TID}} & csr_tid_rvalue
                   | {32{csr_num==`CSR_TCFG}} & csr_tcfg_rvalue
+<<<<<<< HEAD
                   | {32{csr_num==`CSR_TVAL}} & csr_tval_rvalue
                   | {32{csr_num==`CSR_TLBRENTRY}} & csr_tlbrentry_rvalue;
+=======
+                  | {32{csr_num==`CSR_TVAL}} & csr_tval_rvalue;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*---------------------------------------------------------------------*/
 
@@ -964,7 +1047,11 @@ assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
 
 assign ertn_pc = csr_era_rvalue;
 assign ex_entry = csr_eentey_rvalue;
+<<<<<<< HEAD
 assign ex_tlbentry = csr_tlbrentry_rvalue;
+=======
+
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign has_int = ((csr_estat_is[11:0] & csr_ecfg_lie[11:0]) != 12'b0)
                 && (csr_crmd_ie == 1'b1);
 
@@ -986,6 +1073,10 @@ assign tlbelo1_mat   =      TLBELO1_MAT;
 assign tlbelo1_g     =      TLBELO1_G;
 assign tlbelo1_ppn   =      TLBELO1_PPN;
 
+<<<<<<< HEAD
+=======
+assign tlbasid_asid  =      ASID_ASID;
+>>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 /*---------------------------------------------------------------------*/
 
 endmodule
