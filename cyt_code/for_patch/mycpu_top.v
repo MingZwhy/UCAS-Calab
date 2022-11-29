@@ -236,4 +236,73 @@ mycpu u_cpu(
     .debug_wb_rf_wdata(debug_wb_rf_wdata)
 );
 
+// tlb my_tlb(
+//     .clk
+//     .s0_vppn
+//     .s0_va_bit12
+//     .s0_asid
+//     .s0_found
+//     .s0_index
+//     .s0_ppn
+//     .s0_ps
+//     .s0_plv
+//     .s0_mat
+//     .s0_d
+//     .s0_v
+
+//     .s1_vppn
+//     .s1_va_bit12
+//     .s1_asid
+//     .s1_index
+//     .s1_ppn
+//     .s1_ps
+//     .s1_plv
+//     .s1_mat
+//     .s1_d
+//     .s1_v
+
+//     .invtlb_valid
+//     .invtlb_op
+    
+//     .we
+//     .w_index
+//     .w_e
+//     .w_vppn
+//     .w_ps
+//     .w_asid
+//     .w_g
+    
+//     .w_ppn0
+//     .w_plv0
+//     .w_mat0
+//     .w_d0
+//     .w_v0
+
+//     .w_ppn1
+//     .w_plv1
+//     .w_mat1
+//     .w_d1
+//     .w_v1
+
+//     .r_index
+//     .r_e
+//     .r_vppn
+//     .r_ps
+//     .r_asid
+//     .r_g
+
+//     .r_ppn0
+//     .r_plv0
+//     .r_mat0
+//     .r_d0
+//     .r_v0
+
+//     .r_ppn1
+//     .r_plv1
+//     .r_mat1
+//     .r_d1
+//     .r_v1
+// );
+
+
 endmodule

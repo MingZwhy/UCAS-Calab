@@ -3,32 +3,116 @@ module csr_reg(
     input                         clk,
     input                         reset,
 
-    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //å¯„å­˜å™¨å·
+    input [`WIDTH_CSR_NUM-1:0]     csr_num,           //¼Ä´æÆ÷ºÅ
 
-    input                         csr_re,            //è¯»ä½¿èƒ½
-    output             [31:0]     csr_rvalue,        //è¯»æ•°æ®
+    input                         csr_re,            //¶ÁÊ¹ÄÜ
+    output             [31:0]     csr_rvalue,        //¶ÁÊı¾İ
     output             [31:0]     ertn_pc,
     output             [31:0]     ex_entry,
+    output             [31:0]     ex_tlbentry,
 
-    input                         csr_we,            //å†™ä½¿èƒ½
-    input              [31:0]     csr_wmask,         //å†™æ©ç 
-    input              [31:0]     csr_wvalue,        //å†™æ•°æ®
+    input                         csr_we,            //Ğ´Ê¹ÄÜ
+    input              [31:0]     csr_wmask,         //Ğ´ÑÚÂë
+    input              [31:0]     csr_wvalue,        //Ğ´Êı¾İ
 
-    input                         wb_ex,             //å†™å›çº§å¼‚å¸¸
-    input              [31:0]     wb_pc,             //å¼‚å¸¸pc
-    input                         ertn_flush,        //ertnæŒ‡ä»¤æ‰§è¡Œæœ‰æ•ˆä¿¡å·
-    input              [5:0]      wb_ecode,          //å¼‚å¸¸ç±»å‹1çº§ç 
-    input              [8:0]      wb_esubcode,       //å¼‚å¸¸ç±»å‹2çº§ç 
+    input                         wb_ex,             //Ğ´»Ø¼¶Òì³£
+    input              [31:0]     wb_pc,             //Òì³£pc
+    input                         ertn_flush,        //ertnÖ¸ÁîÖ´ĞĞÓĞĞ§ĞÅºÅ
+    input              [5:0]      wb_ecode,          //Òì³£ÀàĞÍ1¼¶Âë
+    input              [8:0]      wb_esubcode,       //Òì³£ÀàĞÍ2¼¶Âë
     input              [31:0]     wb_vaddr, 
+    input                         if_fetch_plv_ex,
+    input                         if_fetch_tlb_refill,
     input              [31:0]     coreid_in,
 
     output                        has_int,
     input              [7:0]      hw_int_in,
-    input                         ipi_int_in
+    input                         ipi_int_in,
+
+    //tlb info
+    //1:TLBIDX
+    output             [3:0]      tlbidx_index,
+    output             [5:0]      tlbidx_ps,
+    output                        tlbidx_ne,
+
+    //2:TLBEHI
+    output             [18:0]     tlbehi_vppn,
+
+    //3:TLBELO0
+    output                        tlbelo0_v,
+    output                        tlbelo0_d,
+    output             [1:0]      tlbelo0_plv,
+    output             [1:0]      tlbelo0_mat,
+    output                        tlbelo0_g,
+    output             [19:0]     tlbelo0_ppn,
+
+    //4:TLBELO1
+    output                        tlbelo1_v,
+    output                        tlbelo1_d,
+    output             [1:0]      tlbelo1_plv,
+    output             [1:0]      tlbelo1_mat,
+    output                        tlbelo1_g,
+    output             [19:0]     tlbelo1_ppn,
+
+    //5:ASID
+    output             [9:0]      tlbasid_asid,
+
+    //for tlbsrch
+    input        inst_tlbsrch,
+    input        tlbsrch_got,        //tlbsrch ÃüÖĞÁË±íÏî
+    input [3:0]  tlbsrch_index,
+
+    //for tlbrd
+    input        inst_tlbrd,         
+    input        tlbrd_valid,        //tlbrd Ö¸¶¨Î»ÖÃÊÇÓĞĞ§TLBÏî
+
+    input [18:0] tlbrd_tlbehi_vppn,
+
+    input [19:0] tlbrd_tlbelo0_ppn,
+    input        tlbrd_tlbelo0_g,
+    input [1:0]  tlbrd_tlbelo0_mat,
+    input [1:0]  tlbrd_tlbelo0_plv,
+    input        tlbrd_tlbelo0_d,
+    input        tlbrd_tlbelo0_v,
+
+    input [19:0] tlbrd_tlbelo1_ppn,
+    input        tlbrd_tlbelo1_g,
+    input [1:0]  tlbrd_tlbelo1_mat,
+    input [1:0]  tlbrd_tlbelo1_plv,
+    input        tlbrd_tlbelo1_d,
+    input        tlbrd_tlbelo1_v,
+
+    input [5:0]  tlbrd_tlbidx_ps,
+    input [9:0]  tlbrd_asid_asid,
+
+    //for exception
+    input        ex_tlb_refill,
+
+    //guchaoyang add
+    output [1:0] crmd_plv,
+    output       crmd_da,
+    output       crmd_pg,
+    output [1:0] crmd_datf,
+    output [1:0] crmd_datm,
+
+    //6:DMW
+    output       tlbdmw0_plv0,
+    output       tlbdmw0_plv3,
+    output [1:0] tlbdmw0_mat,
+    output [2:0] tlbdmw0_pseg,
+    output [2:0] tlbdmw0_vseg,
+
+    output       tlbdmw1_plv0,
+    output       tlbdmw1_plv3,
+    output [1:0] tlbdmw1_mat,
+    output [2:0] tlbdmw1_pseg,
+    output [2:0] tlbdmw1_vseg,
+
+    output [5:0] stat_ecode
 );
 
 /*
-å¯„å­˜å™¨å·ï¼š
+¼Ä´æÆ÷ºÅ£º
 `define CSR_CRMD 0x0
 `define CSR_PRMD 0x1
 `define CSR_ECFG 0x4
@@ -36,6 +120,7 @@ module csr_reg(
 `define CSR_ERA 0x6
 `define CSR_BADV 0x7
 `define CSR_EENTRY 0xc
+`define CSR_ASID 0x18
 `define CSR_SAVE0 0x30
 `define CSR_SAVE1 0x31
 `define CSR_SAVE2 0x32
@@ -47,17 +132,17 @@ module csr_reg(
 */
 
 /*
-CSRåˆ†åŒº
+CSR·ÖÇø
 */
 
-/*--------------------------å½“å‰æ¨¡å¼ä¿¡æ¯ CRMD-------------------------*/
+/*--------------------------µ±Ç°Ä£Ê½ĞÅÏ¢ CRMD-------------------------*/
 
 
-//å½“å‰ç‰¹æƒç­‰çº§
+//µ±Ç°ÌØÈ¨µÈ¼¶
 /*
-2'b00: æœ€é«˜ç‰¹æƒçº§  2'b11ï¼šæœ€ä½ç‰¹æƒç­‰çº§
-è§¦å‘ç‰¹ä¾‹æ—¶åº”å°†plvè®¾ä¸º0ï¼Œç¡®ä¿é™·å…¥åå¤„äºå†…æ ¸æ€æœ€é«˜ç‰¹æƒç­‰çº§
-å½“æ‰§è¡ŒERTNæŒ‡ä»¤ä»ä¾‹å¤–å¤„ç†ç¨‹åºè¿”å›æ—¶ï¼Œè®²CSR_PRMD[PPLV] --> CSR_CRMD[PLV]
+2'b00: ×î¸ßÌØÈ¨¼¶  2'b11£º×îµÍÌØÈ¨µÈ¼¶
+´¥·¢ÌØÀıÊ±Ó¦½«plvÉèÎª0£¬È·±£ÏİÈëºó´¦ÓÚÄÚºËÌ¬×î¸ßÌØÈ¨µÈ¼¶
+µ±Ö´ĞĞERTNÖ¸Áî´ÓÀıÍâ´¦Àí³ÌĞò·µ»ØÊ±£¬½²CSR_PRMD[PPLV] --> CSR_CRMD[PLV]
 */
 reg [1:0] csr_crmd_plv;
 
@@ -74,12 +159,14 @@ always @(posedge clk)
                          | ~csr_wmask[`CSR_CRMD_PLV] & csr_crmd_plv;
     end
 
-//å½“å‰å…¨å±€ä¸­æ–­ä½¿èƒ½
+assign crmd_plv = csr_crmd_plv;
+
+//µ±Ç°È«¾ÖÖĞ¶ÏÊ¹ÄÜ
 /*
-1'b1ï¼šå¯ä¸­æ–­    1'b0ï¼šå±è”½ä¸­æ–­
-å½“è§¦å‘ä¾‹å¤–æ—¶ï¼Œç¡¬ä»¶ç½®ä¸º0ï¼Œç¡®ä¿é™·å…¥åå±è”½ä¸­æ–­
-ä¾‹å¤–å¤„ç†ç¨‹åºå†³å®šé‡æ–°å¼€å¯ä¸­æ–­å“åº”æ—¶ï¼Œæ˜¾ç¤ºè®¾1
-å½“æ‰§è¡ŒERTNæŒ‡ä»¤ä»ä¾‹å¤–å¤„ç†ç¨‹åºè¿”å›æ—¶ï¼Œè®²CSR_PRMD[IE] --> CSR_CRMD[IE]
+1'b1£º¿ÉÖĞ¶Ï    1'b0£ºÆÁ±ÎÖĞ¶Ï
+µ±´¥·¢ÀıÍâÊ±£¬Ó²¼şÖÃÎª0£¬È·±£ÏİÈëºóÆÁ±ÎÖĞ¶Ï
+ÀıÍâ´¦Àí³ÌĞò¾ö¶¨ÖØĞÂ¿ªÆôÖĞ¶ÏÏìÓ¦Ê±£¬ÏÔÊ¾Éè1
+µ±Ö´ĞĞERTNÖ¸Áî´ÓÀıÍâ´¦Àí³ÌĞò·µ»ØÊ±£¬½²CSR_PRMD[IE] --> CSR_CRMD[IE]
 */
 reg csr_crmd_ie;
 
@@ -88,7 +175,7 @@ always @(posedge clk)
         if(reset)
             csr_crmd_ie <= 1'b0;
         else if(wb_ex)
-            //è¿›å…¥ä¸­æ–­åï¼Œå…³é—­ä¸­æ–­ä½¿èƒ½
+            //½øÈëÖĞ¶Ïºó£¬¹Ø±ÕÖĞ¶ÏÊ¹ÄÜ
             csr_crmd_ie <= 1'b0;
         else if(ertn_flush)
             csr_crmd_ie <= csr_prmd_pie;
@@ -97,24 +184,70 @@ always @(posedge clk)
                         | ~csr_wmask[`CSR_CRMD_IE] & csr_crmd_ie;
     end
 
-//ç›´æ¥åœ°å€ç¿»è¯‘ä½¿èƒ½ --> åˆå§‹åŒ–ç½®ä¸º1
+//Ö±½ÓµØÖ··­ÒëÊ¹ÄÜ --> ³õÊ¼»¯ÖÃÎª1
 reg csr_crmd_da;
 
 always @(posedge clk)
     begin
         if(reset)
             csr_crmd_da <= 1'b1;
+        else if(csr_we && csr_num == `CSR_CRMD)
+            csr_crmd_da <= csr_wmask[`CSR_CRMD_DA] & csr_wvalue[`CSR_CRMD_DA]
+                        | ~csr_wmask[`CSR_CRMD_DA] & csr_crmd_da;
+        else if(ex_tlb_refill)
+            //´¥·¢TLBÖØÌîÀıÍâÊ±£¬Ó²¼ş½«daÉèÎª1
+            csr_crmd_da <= 1'b1;
+        else if(ertn_flush && csr_estat_ecode == 6'h3f)
+            csr_crmd_da <= 1'b0;
     end
 
-//æš‚æœªä½¿ç”¨
 reg csr_crmd_pg;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            csr_crmd_pg <= 1'b0;
+        else if(csr_we && csr_num == `CSR_CRMD)
+            csr_crmd_pg <= csr_wmask[`CSR_CRMD_PG] & csr_wvalue[`CSR_CRMD_PG]
+                        | ~csr_wmask[`CSR_CRMD_PG] & csr_crmd_pg;
+        else if(ex_tlb_refill)
+            csr_crmd_pg <= 1'b0;
+        else if(ertn_flush && csr_estat_ecode == 6'h3f)
+            csr_crmd_pg <= 1'b1;
+    end
+
 reg [1:0] csr_crmd_datf;
 reg [1:0] csr_crmd_datm;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            csr_crmd_datf <= 2'b00;
+        else if(csr_we && csr_num == `CSR_CRMD)
+            csr_crmd_datf <= csr_wmask[`CSR_CRMD_DATF] & csr_wvalue[`CSR_CRMD_DATF]
+                        | ~csr_wmask[`CSR_CRMD_DATF] & csr_crmd_datf;
+    end
+
+always @(posedge clk)
+    begin
+        if(reset)
+            csr_crmd_datm <= 2'b00;
+        else if(csr_we && csr_num == `CSR_CRMD)
+            csr_crmd_datm <= csr_wmask[`CSR_CRMD_DATM] & csr_wvalue[`CSR_CRMD_DATM]
+                        | ~csr_wmask[`CSR_CRMD_DATM] & csr_crmd_datm;
+    end
+
 reg [22:0] csr_crmd_zero;
+
+assign   crmd_da    = csr_crmd_da;
+assign   crmd_pg    = csr_crmd_pg;
+assign   crmd_datf  = csr_crmd_datf;
+assign   crmd_datm  = csr_crmd_datm;
+
 
 /*---------------------------------------------------------------------*/
 
-/*--------------------------ä¾‹å¤–å‰æ¨¡å¼ä¿¡æ¯ PRMD-------------------------*/
+/*--------------------------ÀıÍâÇ°Ä£Ê½ĞÅÏ¢ PRMD-------------------------*/
 
 reg [1:0] csr_prmd_pplv;
 reg csr_prmd_pie;
@@ -135,18 +268,18 @@ always @(posedge clk)
             end
     end
 
-//æš‚æœªä½¿ç”¨çš„
+//ÔİÎ´Ê¹ÓÃµÄ
 reg [28:0] reg_prmd_zero;
 
 /*---------------------------------------------------------------------*/
 
-/*--------------------------ä¾‹å¤–æ§åˆ¶ ECFG-------------------------------*/
+/*--------------------------ÀıÍâ¿ØÖÆ ECFG-------------------------------*/
 
-//æ§åˆ¶å„ä¸­æ–­çš„å±€éƒ¨ä½¿èƒ½ä½
+//¿ØÖÆ¸÷ÖĞ¶ÏµÄ¾Ö²¿Ê¹ÄÜÎ»
 /*
-1'b1ï¼šå¯ä¸­æ–­    1'b0ï¼šå±è”½ä¸­æ–­
-ä½10ä½å±€éƒ¨ä¸­æ–­ä½¿èƒ½ä½ä¸CSR_ESTATä¸­IS[9:0]åŸŸè®°å½•çš„10ä¸ªä¸­æ–­æºä¸€ä¸€å¯¹åº”
-12:11ä½å±€éƒ¨ä¸­æ–­ä½¿èƒ½ä½ä¸CSR_ESTATä¸­IS[12:11]åŸŸè®°å½•çš„2ä¸ªä¸­æ–­æºä¸€ä¸€å¯¹åº”
+1'b1£º¿ÉÖĞ¶Ï    1'b0£ºÆÁ±ÎÖĞ¶Ï
+µÍ10Î»¾Ö²¿ÖĞ¶ÏÊ¹ÄÜÎ»ÓëCSR_ESTATÖĞIS[9:0]Óò¼ÇÂ¼µÄ10¸öÖĞ¶ÏÔ´Ò»Ò»¶ÔÓ¦
+12:11Î»¾Ö²¿ÖĞ¶ÏÊ¹ÄÜÎ»ÓëCSR_ESTATÖĞIS[12:11]Óò¼ÇÂ¼µÄ2¸öÖĞ¶ÏÔ´Ò»Ò»¶ÔÓ¦
 */
 reg [12:0] csr_ecfg_lie;
 
@@ -159,54 +292,53 @@ always @(posedge clk)
                          | ~csr_wmask[`CSR_ECFG_LIE] & csr_ecfg_lie;
     end
 
-//æš‚æœªä½¿ç”¨çš„
+//ÔİÎ´Ê¹ÓÃµÄ
 reg [18:0] csr_ecgh_zero;
 
 /*---------------------------------------------------------------------*/
 
-/*--------------------------ä¾‹å¤–çŠ¶æ€ ESTAT-------------------------------*/
+/*--------------------------ÀıÍâ×´Ì¬ ESTAT-------------------------------*/
 
-//2ä¸ªè½¯ä¸­æ–­çŠ¶æ€ä½ï¼Œ 0å’Œ1æ¯”ç‰¹åˆ†åˆ«å¯¹åº”SWI0 å’Œ SWI1
-//8ä¸ªç¡¬ä¸­æ–­çŠ¶æ€ä½ï¼Œ 2è‡³9æ¯”ç‰¹åˆ†è´å¯¹åº”HWI0 åˆ° HWI7
-//1ä¸ªä¿ç•™åŸŸ
-//ç¬¬11ä½å¯¹åº”å®šæ—¶å™¨ä¸­æ–­TIçš„çŠ¶æ€ä½
-//ç¬¬12ä½å¯¹åº”æ ¸é—´ä¸­æ–­
+//2¸öÈíÖĞ¶Ï×´Ì¬Î»£¬ 0ºÍ1±ÈÌØ·Ö±ğ¶ÔÓ¦SWI0 ºÍ SWI1
+//8¸öÓ²ÖĞ¶Ï×´Ì¬Î»£¬ 2ÖÁ9±ÈÌØ·Ö±´¶ÔÓ¦HWI0 µ½ HWI7
+//1¸ö±£ÁôÓò
+//µÚ11Î»¶ÔÓ¦¶¨Ê±Æ÷ÖĞ¶ÏTIµÄ×´Ì¬Î»
+//µÚ12Î»¶ÔÓ¦ºË¼äÖĞ¶Ï
 reg [12:0] csr_estat_is;
-
 always @(posedge clk)
     begin
-        //è½¯ä¸­æ–­ä½ -- RW
+        //ÈíÖĞ¶ÏÎ» -- RW
         if(reset)
             csr_estat_is[`CSR_ESTAT_IS_SOFT] <= 2'b0;
         else if(csr_we && csr_num == `CSR_ESTAT)
             csr_estat_is[`CSR_ESTAT_IS_SOFT] <= csr_wmask[`CSR_ESTAT_IS_SOFT] & csr_wvalue[`CSR_ESTAT_IS_SOFT]
                               | ~csr_wmask[`CSR_ESTAT_IS_SOFT] & csr_estat_is[`CSR_ESTAT_IS_SOFT] ;
 
-        //ç¡¬ä¸­æ–­ä½ -- R
+        //Ó²ÖĞ¶ÏÎ» -- R
         csr_estat_is[`CSR_ESTAT_IS_HARD] <= hw_int_in[7:0];
 
-        //ä¿ç•™ä½
+        //±£ÁôÎ»
         csr_estat_is[`CSR_ESTAT_IS_LEFT1] <= 1'b0;
 
-        //æ—¶é’Ÿä¸­æ–­ -- R ä½†æ˜¯å†™CSR_TICLR_CLRå¯æ”¹å˜CSR_ESTAT_IS_TI
+        //Ê±ÖÓÖĞ¶Ï -- R µ«ÊÇĞ´CSR_TICLR_CLR¿É¸Ä±äCSR_ESTAT_IS_TI
         if(timer_cnt[31:0] == 32'b0)
             csr_estat_is[`CSR_ESTAT_IS_TI] <= 1'b1;
         else if(csr_we && csr_num == `CSR_TICLR && csr_wmask[`CSR_TICLR_CLR]
                 && csr_wvalue[`CSR_TICLR_CLR])
-            //å¯¹CSR_TICLRå®šæ—¶ä¸­æ–­æ¸…é™¤å¯„å­˜å™¨çš„CLRä½å†™1 ä»£è¡¨ æ¸…é™¤æ—¶é’Ÿä¸­æ–­æ ‡è®°
+            //¶ÔCSR_TICLR¶¨Ê±ÖĞ¶ÏÇå³ı¼Ä´æÆ÷µÄCLRÎ»Ğ´1 ´ú±í Çå³ıÊ±ÖÓÖĞ¶Ï±ê¼Ç
             csr_estat_is[`CSR_ESTAT_IS_TI] <= 1'b0;
 
-        //æ ¸é—´ä¸­æ–­æ ‡è®°
+        //ºË¼äÖĞ¶Ï±ê¼Ç
         csr_estat_is[`CSR_ESTAT_IS_IPI] <= ipi_int_in;
     end
 
-//ä¿ç•™ä½
+//±£ÁôÎ»
 reg [2:0] csr_estat_left;
 
-//ä¸­æ–­ç±»å‹1çº§2çº§ç¼–ç 
+//ÖĞ¶ÏÀàĞÍ1¼¶2¼¶±àÂë
 reg [5:0] csr_estat_ecode;
 reg [8:0] csr_estat_esubcode;
-
+assign stat_ecode = csr_estat_ecode;
 always @(posedge clk)
     begin
         if(wb_ex)
@@ -216,14 +348,14 @@ always @(posedge clk)
             end
     end
 
-//æš‚æœªä½¿ç”¨çš„
+//ÔİÎ´Ê¹ÓÃµÄ
 reg csr_estat_zero;
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------ä¾‹å¤–è¿”å›åœ°å€ ERA-------------------------------*/
+/*-----------------------ÀıÍâ·µ»ØµØÖ· ERA-------------------------------*/
 
-//è§¦å‘ä¾‹å¤–çš„æŒ‡ä»¤PCå°†è¢«è®°å½•åœ¨EPCå¯„å­˜å™¨
+//´¥·¢ÀıÍâµÄÖ¸ÁîPC½«±»¼ÇÂ¼ÔÚEPC¼Ä´æÆ÷
 reg [31:0] csr_era_pc;
 
 always @(posedge clk)
@@ -237,32 +369,38 @@ always @(posedge clk)
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------å‡ºé”™è™šåœ°å€ BADV-------------------------------*/
+/*-----------------------³ö´íĞéµØÖ· BADV-------------------------------*/
 
-//è§¦å‘åœ°å€é”™è¯¯ç›¸å…³ä¾‹å¤–æ—¶ï¼Œè®°å½•å‡ºé”™çš„è™šåœ°å€
+//´¥·¢µØÖ·´íÎóÏà¹ØÀıÍâÊ±£¬¼ÇÂ¼³ö´íµÄĞéµØÖ·
 reg [31:0] csr_badv_vaddr;
 
 wire wb_ex_addr_err;
 /*
-ECODE_ADEF: å–å€¼åœ°å€é”™ä¾‹å¤–
-ECODE_ADEMï¼šè®¿å­˜æŒ‡ä»¤åœ°å€é”™ä¾‹å¤–
-ECODE_ALEï¼šåœ°å€éå¯¹é½ä¾‹å¤–
+ECODE_ADEF: È¡ÖµµØÖ·´íÀıÍâ
+ECODE_ADEM£º·Ã´æÖ¸ÁîµØÖ·´íÀıÍâ
+ECODE_ALE£ºµØÖ··Ç¶ÔÆëÀıÍâ
 */
-assign wb_ex_addr_err = (wb_ecode == `ECODE_ADE) || (wb_ecode == `ECODE_ALE);
+assign wb_ex_addr_err = (wb_ecode == `ECODE_ADE) || (wb_ecode == `ECODE_ALE) || 
+                        (wb_ecode == `ECODE_TLBR) || (wb_ecode == `ECODE_PIL) ||
+                        (wb_ecode == `ECODE_PIS) || (wb_ecode == `ECODE_PIF) ||
+                        (wb_ecode == `ECODE_PME) || (wb_ecode == `ECODE_PPI);
 
 always @(posedge clk)
     begin
         if(wb_ex && wb_ex_addr_err)
-            csr_badv_vaddr <= (wb_ecode == `ECODE_ADE && 
-                               wb_esubcode == `ESUBCODE_ADEF) ? wb_pc : wb_vaddr;
+            csr_badv_vaddr <= ((wb_ecode == `ECODE_ADE && wb_esubcode == `ESUBCODE_ADEF) || 
+                              (wb_ecode == `ECODE_PIF) ||
+                              (wb_ecode == `ECODE_PPI && if_fetch_plv_ex) ||
+                              (wb_ecode == `ECODE_TLBR && if_fetch_tlb_refill))
+                               ? wb_pc : wb_vaddr;
     end
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------ä¾‹å¤–å…¥å£åœ°å€ EENTRY-------------------------------*/
+/*-----------------------ÀıÍâÈë¿ÚµØÖ· EENTRY-------------------------------*/
 
-//EENTRYç”¨äºé…ç½®é™¤TLBå……å¡«ä¾‹å¤–ä¹‹å¤–çš„ä¾‹å¤–å’Œä¸­æ–­çš„å…¥å£åœ°å€
-//åªèƒ½ç”±CSRæŒ‡ä»¤æ›´æ–°
+//EENTRYÓÃÓÚÅäÖÃ³ıTLB³äÌîÀıÍâÖ®ÍâµÄÀıÍâºÍÖĞ¶ÏµÄÈë¿ÚµØÖ·
+//Ö»ÄÜÓÉCSRÖ¸Áî¸üĞÂ
 reg [5:0] csr_eentry_zero;
 reg [25:0] csr_eentry_va;
 
@@ -280,7 +418,7 @@ always @(posedge clk)
     end
 /*---------------------------------------------------------------------*/
 
-/*-----------------------ä¸´æ—¶å¯„å­˜å™¨ SAVE0-3-------------------------------*/
+/*-----------------------ÁÙÊ±¼Ä´æÆ÷ SAVE0-3-------------------------------*/
 
 reg [31:0] csr_save0_data;
 reg [31:0] csr_save1_data;
@@ -308,9 +446,9 @@ always @(posedge clk)
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------å®šæ—¶å™¨ç¼–å·å¯„å­˜å™¨ TID-------------------------------*/
+/*-----------------------¶¨Ê±Æ÷±àºÅ¼Ä´æÆ÷ TID-------------------------------*/
 
-//å®šæ—¶å™¨ç¼–å·å¯„å­˜å™¨
+//¶¨Ê±Æ÷±àºÅ¼Ä´æÆ÷
 reg [31:0] csr_tid_tid;
 
 always @(posedge clk)
@@ -324,13 +462,13 @@ always @(posedge clk)
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------å®šæ—¶å™¨é…ç½®å¯„å­˜å™¨ TCFG-------------------------------*/
+/*-----------------------¶¨Ê±Æ÷ÅäÖÃ¼Ä´æÆ÷ TCFG-------------------------------*/
 
-//å®šæ—¶å™¨ä½¿èƒ½ä½ï¼Œenä¸º1æ—¶å®šæ—¶å™¨æ‰ä¼šè¿›è¡Œå€’è®¡æ—¶è‡ªæ£€ï¼Œå¹¶åœ¨å‡ä¸º0æ—¶ç½®èµ·å®šæ—¶ä¸­æ–­ä¿¡å·
+//¶¨Ê±Æ÷Ê¹ÄÜÎ»£¬enÎª1Ê±¶¨Ê±Æ÷²Å»á½øĞĞµ¹¼ÆÊ±×Ô¼ì£¬²¢ÔÚ¼õÎª0Ê±ÖÃÆğ¶¨Ê±ÖĞ¶ÏĞÅºÅ
 reg csr_tcfg_en;
-//å®šæ—¶å™¨å¾ªç¯æ¨¡å¼æ§åˆ¶ä½ï¼Œä¸º1æ—¶ä¼šå¾ªç¯
+//¶¨Ê±Æ÷Ñ­»·Ä£Ê½¿ØÖÆÎ»£¬Îª1Ê±»áÑ­»·
 reg csr_tcfg_periodic;
-//å®šæ—¶å™¨å€’è®¡æ—¶è‡ªå‡è®¡æ•°çš„åˆå§‹å€¼
+//¶¨Ê±Æ÷µ¹¼ÆÊ±×Ô¼õ¼ÆÊıµÄ³õÊ¼Öµ
 reg [29:0] csr_tcfg_initval;
 
 always @(posedge clk)
@@ -352,7 +490,7 @@ always @(posedge clk)
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------TVALçš„TimeValåŸŸ-------------------------------*/
+/*-----------------------TVALµÄTimeValÓò-------------------------------*/
 
 wire [31:0] tcfg_cur_value;
 wire [31:0] tcfg_next_value;
@@ -360,23 +498,23 @@ wire [31:0] csr_tval;
 reg  [31:0] timer_cnt;
 
 /*
-è¿™é‡Œç”¨ä¸¤ä¸ªwireç±»å‹ä¿¡å·å®šä¹‰cur_tcfg å’Œ next_tcfg
-æ˜¯ä¸ºäº†èƒ½åœ¨å½“è½¯ä»¶å¼€å¯timerçš„ä½¿èƒ½çš„åŒæ—¶å‘èµ·timer_cntçš„æ›´æ–°æ“ä½œ
-å³åœ¨ä¸‹é¢çš„æ—¶åºé€»è¾‘ä¸­çš„
+ÕâÀïÓÃÁ½¸öwireÀàĞÍĞÅºÅ¶¨Òåcur_tcfg ºÍ next_tcfg
+ÊÇÎªÁËÄÜÔÚµ±Èí¼ş¿ªÆôtimerµÄÊ¹ÄÜµÄÍ¬Ê±·¢Æğtimer_cntµÄ¸üĞÂ²Ù×÷
+¼´ÔÚÏÂÃæµÄÊ±ĞòÂß¼­ÖĞµÄ
         else if(csr_we && csr_num == `CSR_TCFG && tcfg_next_value[`CSR_TCFG_EN])
             timer_cnt <= {tcfg_next_value[`CSR_TCFG_INITVAL], 2'b0};
-        å°†æ­¤æ—¶å†™å…¥çš„timeré…ç½®å¯„å­˜å™¨çš„å®šæ—¶å™¨åˆå§‹å€¼æ›´æ–°åˆ°timer_cntä¸­
+        ½«´ËÊ±Ğ´ÈëµÄtimerÅäÖÃ¼Ä´æÆ÷µÄ¶¨Ê±Æ÷³õÊ¼Öµ¸üĞÂµ½timer_cntÖĞ
 
-å› ä¸ºæ˜¯åœ¨è½¯ä»¶å†™TCFGçš„åŒæ—¶æ›´æ–°timerï¼Œ
-æ‰€ä»¥è¦çœ‹å½“å‰å†™å…¥TCFGå¯„å­˜å™¨çš„å€¼(next_value)ï¼Œè€Œä¸æ˜¯ç”¨cur_value
+ÒòÎªÊÇÔÚÈí¼şĞ´TCFGµÄÍ¬Ê±¸üĞÂtimer£¬
+ËùÒÔÒª¿´µ±Ç°Ğ´ÈëTCFG¼Ä´æÆ÷µÄÖµ(next_value)£¬¶ø²»ÊÇÓÃcur_value
 */
 
 /*
-å½“timer_cntå‡åˆ°å…¨0ä¸”å®šæ—¶å™¨ä¸æ˜¯å‘¨æœŸæ€§å·¥ä½œæ¨¡å¼æƒ…å†µä¸‹ã€‚
-timer_cntç»§ç»­å‡1å˜æˆ32'hffffffff,ä¹‹ååº”å½“åœæ­¢å³ä½¿ï¼Œ
-æ‰€ä»¥timer_cntè‡ªå‡çš„æ¡ä»¶åŒ…å«timer_cnt!=32'hffffffff
+µ±timer_cnt¼õµ½È«0ÇÒ¶¨Ê±Æ÷²»ÊÇÖÜÆÚĞÔ¹¤×÷Ä£Ê½Çé¿öÏÂ¡£
+timer_cnt¼ÌĞø¼õ1±ä³É32'hffffffff,Ö®ºóÓ¦µ±Í£Ö¹¼´Ê¹£¬
+ËùÒÔtimer_cnt×Ô¼õµÄÌõ¼ş°üº¬timer_cnt!=32'hffffffff
 
-å‘¨æœŸæ€§å·¥ä½œæ¨¡å¼ä¸‹ï¼Œå°±é‡ç½®ä¸º{csr_tcfg_initval, 2'b0}
+ÖÜÆÚĞÔ¹¤×÷Ä£Ê½ÏÂ£¬¾ÍÖØÖÃÎª{csr_tcfg_initval, 2'b0}
 */
 
 assign tcfg_cur_value = {csr_tcfg_initval, csr_tcfg_periodic, csr_tcfg_en};
@@ -392,7 +530,7 @@ always @(posedge clk)
         else if(csr_tcfg_en && timer_cnt!=32'hffffffff)
             begin
                 if(timer_cnt[31:0]==32'b0 && csr_tcfg_periodic)
-                    //å¾ªç¯è®¡æ—¶
+                    //Ñ­»·¼ÆÊ±
                     timer_cnt <= {csr_tcfg_initval, 2'b0};
                 else
                     timer_cnt <= timer_cnt - 1'b1;
@@ -403,13 +541,370 @@ assign csr_tval = timer_cnt[31:0];
 
 /*---------------------------------------------------------------------*/
 
-/*-----------------------TICLRçš„CLRåŸŸ----------------------------------*/
+/*-----------------------TICLRµÄCLRÓò----------------------------------*/
 
-//è½¯ä»¶é€šè¿‡å¯¹TICLRå¯„å­˜å™¨ä½0å†™1æ¥æ¸…é™¤å®šæ—¶å™¨ç½®èµ·çš„å®šæ—¶ä¸­æ–­ä¿¡å·
-//CLRåŸŸçš„è¯»å†™å±æ€§ä½W1,æ„å‘³ç€è½¯ä»¶å¯¹å®ƒå†™1æ‰ä¼šäº§ç”Ÿæ‰§è¡Œæ•ˆæœï¼Œæ‰§è¡Œæ•ˆæœ
-//å…·ä½“ä½“ç°åœ¨TCFG_ENä¸Šï¼Œä½†CLRåŸŸçš„å€¼å®é™…ä¸Šä¸å˜ï¼Œæ’ä¸º0
+//Èí¼şÍ¨¹ı¶ÔTICLR¼Ä´æÆ÷Î»0Ğ´1À´Çå³ı¶¨Ê±Æ÷ÖÃÆğµÄ¶¨Ê±ÖĞ¶ÏĞÅºÅ
+//CLRÓòµÄ¶ÁĞ´ÊôĞÔÎ»W1,ÒâÎ¶×ÅÈí¼ş¶ÔËüĞ´1²Å»á²úÉúÖ´ĞĞĞ§¹û£¬Ö´ĞĞĞ§¹û
+//¾ßÌåÌåÏÖÔÚTCFG_ENÉÏ£¬µ«CLRÓòµÄÖµÊµ¼ÊÉÏ²»±ä£¬ºãÎª0
 wire csr_ticlr_clr;
 assign csr_ticlr_clr = 1'b0;
+
+/*---------------------------------------------------------------------*/
+
+
+/*---------------------------TLBÏà¹Ø¼Ä´æÆ÷------------------------------*/
+
+//1:TLBIDX
+reg [3:0]   TLBIDX_INDEX;
+reg [5:0]   TLBIDX_PS;
+reg         TLBIDX_NE;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            begin
+                TLBIDX_INDEX    <= 0;
+                TLBIDX_NE       <= 1'b1;   //³õÊ¼±íÏîÎª¿Õ (1'b1)
+                TLBIDX_PS        <= 0;
+            end
+        else if(csr_we && csr_num == `CSR_TLBIDX)
+            begin
+                TLBIDX_INDEX <= csr_wmask[`TLBIDX_INDEX] & csr_wvalue[`TLBIDX_INDEX]
+                         | ~csr_wmask[`TLBIDX_INDEX] & TLBIDX_INDEX;
+                TLBIDX_PS <= csr_wmask[`TLBIDX_PS] & csr_wvalue[`TLBIDX_PS]
+                         | ~csr_wmask[`TLBIDX_PS] & TLBIDX_PS;
+                TLBIDX_NE <= csr_wmask[`TLBIDX_NE] & csr_wvalue[`TLBIDX_NE]
+                         | ~csr_wmask[`TLBIDX_NE] & TLBIDX_NE;
+            end
+        else if(inst_tlbsrch)
+            begin
+                if(tlbsrch_got)
+                    begin
+                        //tlbsrchÃüÖĞ±íÏî£¬ÔòĞèÒªÖÃindexºÍne=0
+                        TLBIDX_INDEX <= tlbsrch_index;
+                        TLBIDX_NE    <= 1'b0;
+                    end
+                else
+                    begin
+                        TLBIDX_NE    <= 1'b1;
+                    end
+            end
+        else if(inst_tlbrd)
+            begin
+                if(tlbrd_valid)
+                begin
+                    TLBIDX_PS <= tlbrd_tlbidx_ps;
+                    TLBIDX_NE <= 1'b0;
+                end
+                else
+                begin
+                    TLBIDX_PS <= 0;
+                    TLBIDX_NE <= 1'b1;
+                end
+            end
+    end
+
+assign tlbidx_index = TLBIDX_INDEX;
+assign tlbidx_ps = TLBIDX_PS;
+assign tlbidx_ne = TLBIDX_NE;
+
+/* ÀıÍâÖÖÀà
+PIL     load²Ù×÷Ò³ÎŞĞ§ÀıÍâ
+PIS     store²Ù×÷Ò³ÎŞĞ§ÀıÍâ
+PIF     È¡Ö¸²Ù×÷Ò³ÎŞĞ§ÀıÍâ
+PME     Ò³ĞŞ¸ÄÀıÍâ
+PPI     Ò³ÌØÈ¨µÈ¼¶²»ºÏ¹æÀıÍâ
+ADEF    È¡Ö¸µØÖ·´íÀıÍâ
+ALE     µØÖ··Ç¶ÔÆëÀıÍâ
+TLBR    TLBÖØÌîÀıÍâ
+*/
+
+//2:TLBEHI
+reg [18:0]  TLBEHI_VPPN;
+wire ex_elbehi;
+assign ex_elbehi = (wb_ecode == `ECODE_PIL) || (wb_ecode == `ECODE_PIS) || (wb_ecode == `ECODE_PIF) || 
+                   (wb_ecode == `ECODE_PME) || (wb_ecode == `ECODE_PPI) || (wb_ecode == `ECODE_TLBR);
+always @(posedge clk)
+    begin
+        if(reset)
+            TLBEHI_VPPN <= 0;
+        else if(csr_we && csr_num == `CSR_TLBEHI)
+            begin
+                TLBEHI_VPPN <= csr_wmask[`TLBEHI_VPPN] & csr_wvalue[`TLBEHI_VPPN]
+                         | ~csr_wmask[`TLBEHI_VPPN] & TLBEHI_VPPN;
+            end
+        else if(inst_tlbrd)
+            begin
+                if(tlbrd_valid)
+                    //Èôtlbrd²éÕÒµÄTLB±íÏîÓĞĞ§
+                    TLBEHI_VPPN <= tlbrd_tlbehi_vppn;
+                else
+                    //ÈôÎŞĞ§£¬ÔòĞèÖÃ0
+                    TLBEHI_VPPN <= 0;
+            end
+        else if(wb_ex && ex_elbehi)
+            TLBEHI_VPPN <=  ((wb_ecode == `ECODE_PIF) ||
+                            (wb_ecode == `ECODE_PPI && if_fetch_plv_ex) ||
+                            (wb_ecode == `ECODE_TLBR && if_fetch_tlb_refill))
+                            ? wb_pc[31:13] : wb_vaddr[31:13];
+    end
+
+assign tlbehi_vppn = TLBEHI_VPPN;
+
+//3:TLBELO0
+reg         TLBELO0_V;
+reg         TLBELO0_D;
+reg [1:0]   TLBELO0_PLV;
+reg [1:0]   TLBELO0_MAT;
+reg         TLBELO0_G;
+reg         TLBELO0_ZERO1;
+reg [19:0]  TLBELO0_PPN;
+reg [3:0]   TLBELO0_ZERO2;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            begin
+                TLBELO0_V   <= 0;
+                TLBELO0_D   <= 0;
+                TLBELO0_PLV <= 0;
+                TLBELO0_MAT <= 0;
+                TLBELO0_G   <= 0;
+                TLBELO0_PPN <= 0;
+            end
+        else if(csr_we && csr_num == `CSR_TLBELO0)
+            begin
+                TLBELO0_V <= csr_wmask[`TLBELO_V] & csr_wvalue[`TLBELO_V]
+                         | ~csr_wmask[`TLBELO_V] & TLBELO0_V;
+                TLBELO0_D <= csr_wmask[`TLBELO_D] & csr_wvalue[`TLBELO_D]
+                         | ~csr_wmask[`TLBELO_D] & TLBELO0_D;
+                TLBELO0_PLV <= csr_wmask[`TLBELO_PLV] & csr_wvalue[`TLBELO_PLV]
+                         | ~csr_wmask[`TLBELO_PLV] & TLBELO0_PLV;
+                TLBELO0_MAT <= csr_wmask[`TLBELO_MAT] & csr_wvalue[`TLBELO_MAT]
+                         | ~csr_wmask[`TLBELO_MAT] & TLBELO0_MAT;
+                TLBELO0_G <= csr_wmask[`TLBELO_G] & csr_wvalue[`TLBELO_G]
+                         | ~csr_wmask[`TLBELO_G] & TLBELO0_G;
+                TLBELO0_PPN <= csr_wmask[`TLBELO_PPN] & csr_wvalue[`TLBELO_PPN]
+                         | ~csr_wmask[`TLBELO_PPN] & TLBELO0_PPN;
+            end
+        else if(inst_tlbrd)
+            begin
+                if(tlbrd_valid)
+                    begin
+                        TLBELO0_V   <= tlbrd_tlbelo0_v;
+                        TLBELO0_D   <= tlbrd_tlbelo0_d;
+                        TLBELO0_PLV <= tlbrd_tlbelo0_plv;
+                        TLBELO0_MAT <= tlbrd_tlbelo0_mat;
+                        TLBELO0_G   <= tlbrd_tlbelo0_g;
+                        TLBELO0_PPN <= tlbrd_tlbelo0_ppn;
+                    end
+                else
+                    begin
+                        TLBELO0_V   <= 0;
+                        TLBELO0_D   <= 0;
+                        TLBELO0_PLV <= 0;
+                        TLBELO0_MAT <= 0;
+                        TLBELO0_G   <= 0;
+                        TLBELO0_PPN <= 0;
+                    end
+            end
+    end
+
+//4:TLBELO1
+reg         TLBELO1_V;
+reg         TLBELO1_D;
+reg [1:0]   TLBELO1_PLV;
+reg [1:0]   TLBELO1_MAT;
+reg         TLBELO1_G;
+reg         TLBELO1_ZERO1;
+reg [19:0]  TLBELO1_PPN;
+reg [3:0]   TLBELO1_ZERO2;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            begin
+                TLBELO1_V   <= 0;
+                TLBELO1_D   <= 0;
+                TLBELO1_PLV <= 0;
+                TLBELO1_MAT <= 0;
+                TLBELO1_G   <= 0;
+                TLBELO1_PPN <= 0;
+            end
+        else if(csr_we && csr_num == `CSR_TLBELO1)
+            begin
+                TLBELO1_V <= csr_wmask[`TLBELO_V] & csr_wvalue[`TLBELO_V]
+                         | ~csr_wmask[`TLBELO_V] & TLBELO1_V;
+                TLBELO1_D <= csr_wmask[`TLBELO_D] & csr_wvalue[`TLBELO_D]
+                         | ~csr_wmask[`TLBELO_D] & TLBELO1_D;
+                TLBELO1_PLV <= csr_wmask[`TLBELO_PLV] & csr_wvalue[`TLBELO_PLV]
+                         | ~csr_wmask[`TLBELO_PLV] & TLBELO1_PLV;
+                TLBELO1_MAT <= csr_wmask[`TLBELO_MAT] & csr_wvalue[`TLBELO_MAT]
+                         | ~csr_wmask[`TLBELO_MAT] & TLBELO1_MAT;
+                TLBELO1_G <= csr_wmask[`TLBELO_G] & csr_wvalue[`TLBELO_G]
+                         | ~csr_wmask[`TLBELO_G] & TLBELO1_G;
+                TLBELO1_PPN <= csr_wmask[`TLBELO_PPN] & csr_wvalue[`TLBELO_PPN]
+                         | ~csr_wmask[`TLBELO_PPN] & TLBELO1_PPN;
+            end
+        else if(inst_tlbrd)
+            begin
+                if(tlbrd_valid)
+                    begin
+                        TLBELO1_V   <= tlbrd_tlbelo1_v;
+                        TLBELO1_D   <= tlbrd_tlbelo1_d;
+                        TLBELO1_PLV <= tlbrd_tlbelo1_plv;
+                        TLBELO1_MAT <= tlbrd_tlbelo1_mat;
+                        TLBELO1_G   <= tlbrd_tlbelo1_g;
+                        TLBELO1_PPN <= tlbrd_tlbelo1_ppn;
+                    end
+                else
+                    begin
+                        TLBELO1_V   <= 0;
+                        TLBELO1_D   <= 0;
+                        TLBELO1_PLV <= 0;
+                        TLBELO1_MAT <= 0;
+                        TLBELO1_G   <= 0;
+                        TLBELO1_PPN <= 0;
+                    end
+            end
+    end
+
+//5:ASID
+reg [9:0]   ASID_ASID;
+reg [5:0]   ASID_ZERO1;
+reg [7:0]   ASID_ASIDBITS;
+reg [7:0]   ASID_ZERO2;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            begin
+            ASID_ASID <= 0;
+            ASID_ZERO1 <= 0;
+            ASID_ASIDBITS <= 8'ha;
+            ASID_ZERO2 <= 0;
+            end
+        else if(csr_we && csr_num == `CSR_ASID)
+                    ASID_ASID <= csr_wmask[`ASID_ASID] & csr_wvalue[`ASID_ASID]
+                         | ~csr_wmask[`ASID_ASID] & ASID_ASID;
+        else if(inst_tlbrd)
+            begin
+                if(tlbrd_valid)
+                    ASID_ASID <= tlbrd_asid_asid;
+                else
+                    ASID_ASID <= 0;
+            end
+    end
+
+assign tlbasid_asid = ASID_ASID;
+
+//6:TLBRENTRY
+reg [5:0]   TLBRENTRY_LOW;
+reg [25:0]  TLBRENTRY_HIGH;
+
+always @(posedge clk)
+begin
+    if(reset)
+        begin
+            TLBRENTRY_LOW  <= 0;
+            TLBRENTRY_HIGH <= 0;
+        end
+    else if(csr_we && csr_num == `CSR_TLBRENTRY)
+                TLBRENTRY_HIGH <= csr_wmask[`TLBRENTRY_HIGH] & csr_wvalue[`TLBRENTRY_HIGH]
+                        |         ~csr_wmask[`TLBRENTRY_HIGH] & TLBRENTRY_HIGH;
+end
+
+//Ö±½ÓÓ³ÉäÅäÖÃ´°¿Ú
+
+//8:DMW0
+reg         DMW0_PLV0;
+reg [1:0]   DMW0_ZERO1;
+reg         DMW0_PLV3;
+reg [1:0]   DMW0_MAT;
+reg [18:0]  DMW0_ZERO2;
+reg [2:0]   DMW0_PSEG;
+reg         DMW0_ZERO3;
+reg [2:0]   DMW0_VSEG;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            begin
+                DMW0_PLV0 <= 0;
+                DMW0_PLV3 <= 0;
+                DMW0_MAT <= 0;
+                DMW0_PSEG <= 0;
+                DMW0_VSEG <= 0;
+            end
+        else if(csr_we && csr_num == `CSR_DMW0)
+            begin
+                DMW0_PLV0 <= csr_wmask[`DMW_PLV0] & csr_wvalue[`DMW_PLV0]
+                    | ~csr_wmask[`DMW_PLV0] & DMW0_PLV0;
+
+                DMW0_PLV3 <= csr_wmask[`DMW_PLV3] & csr_wvalue[`DMW_PLV3]
+                    | ~csr_wmask[`DMW_PLV3] & DMW0_PLV3;
+
+                DMW0_MAT <= csr_wmask[`DMW_MAT] & csr_wvalue[`DMW_MAT]
+                    | ~csr_wmask[`DMW_MAT] & DMW0_MAT;
+
+                DMW0_PSEG <= csr_wmask[`DMW_PSEG] & csr_wvalue[`DMW_PSEG]
+                    | ~csr_wmask[`DMW_PSEG] & DMW0_PSEG;
+
+                DMW0_VSEG <= csr_wmask[`DMW_VSEG] & csr_wvalue[`DMW_VSEG]
+                    | ~csr_wmask[`DMW_VSEG] & DMW0_VSEG;
+            end
+    end
+
+assign tlbdmw0_plv0 = DMW0_PLV0;
+assign tlbdmw0_plv3 = DMW0_PLV3;
+assign tlbdmw0_mat = DMW0_MAT;
+assign tlbdmw0_pseg = DMW0_PSEG;
+assign tlbdmw0_vseg = DMW0_VSEG;
+
+//9:DMW1
+reg         DMW1_PLV0;
+reg [1:0]   DMW1_ZERO1;
+reg         DMW1_PLV3;
+reg [1:0]   DMW1_MAT;
+reg [18:0]  DMW1_ZERO2;
+reg [2:0]   DMW1_PSEG;
+reg         DMW1_ZERO3;
+reg [2:0]   DMW1_VSEG;
+
+always @(posedge clk)
+    begin
+        if(reset)
+            begin
+                DMW1_PLV0 <= 0;
+                DMW1_PLV3 <= 0;
+                DMW1_MAT <= 0;
+                DMW1_PSEG <= 0;
+                DMW1_VSEG <= 0;
+            end
+        else if(csr_we && csr_num == `CSR_DMW1)
+            begin
+                DMW1_PLV0 <= csr_wmask[`DMW_PLV0] & csr_wvalue[`DMW_PLV0]
+                    | ~csr_wmask[`DMW_PLV0] & DMW1_PLV0;
+
+                DMW1_PLV3 <= csr_wmask[`DMW_PLV3] & csr_wvalue[`DMW_PLV3]
+                    | ~csr_wmask[`DMW_PLV3] & DMW1_PLV3;
+
+                DMW1_MAT <= csr_wmask[`DMW_MAT] & csr_wvalue[`DMW_MAT]
+                    | ~csr_wmask[`DMW_MAT] & DMW1_MAT;
+
+                DMW1_PSEG <= csr_wmask[`DMW_PSEG] & csr_wvalue[`DMW_PSEG]
+                    | ~csr_wmask[`DMW_PSEG] & DMW1_PSEG;
+
+                DMW1_VSEG <= csr_wmask[`DMW_VSEG] & csr_wvalue[`DMW_VSEG]
+                    | ~csr_wmask[`DMW_VSEG] & DMW1_VSEG;
+            end
+    end
+
+assign tlbdmw1_plv0 = DMW1_PLV0;
+assign tlbdmw1_plv3 = DMW1_PLV3;
+assign tlbdmw1_mat = DMW1_MAT;
+assign tlbdmw1_pseg = DMW1_PSEG;
+assign tlbdmw1_vseg = DMW1_VSEG;
 
 /*---------------------------------------------------------------------*/
 
@@ -429,7 +924,14 @@ wire [31:0] csr_tid_rvalue;
 wire [31:0] csr_tcfg_rvalue;
 wire [31:0] csr_tval_rvalue;
 
-assign csr_crmd_rvalue = {28'b0, csr_crmd_da, csr_crmd_ie, csr_crmd_plv};
+wire [31:0] csr_asid_rvalue;
+wire [31:0] csr_tlbidx_rvalue;
+wire [31:0] csr_tlbehi_rvalue;
+wire [31:0] csr_tlbelo0_rvalue;
+wire [31:0] csr_tlbelo1_rvalue;
+wire [31:0] csr_tlbrentry_rvalue;
+
+assign csr_crmd_rvalue = {23'b0, csr_crmd_datm, csr_crmd_datf, csr_crmd_pg, csr_crmd_da, csr_crmd_ie, csr_crmd_plv};
 assign csr_prmd_rvalue = {29'b0, csr_prmd_pie, csr_prmd_pplv};
 assign csr_ecfg_rvalue = {19'b0, csr_ecfg_lie};
 assign csr_estat_rvalue = {1'b0, csr_estat_esubcode, csr_estat_ecode, 
@@ -444,6 +946,13 @@ assign csr_save3_rvalue = csr_save3_data;
 assign csr_tid_rvalue = csr_tid_tid;
 assign csr_tcfg_rvalue = {csr_tcfg_initval, csr_tcfg_periodic, csr_tcfg_en};
 assign csr_tval_rvalue = csr_tval;
+assign csr_asid_rvalue = {ASID_ZERO2, ASID_ASIDBITS, ASID_ZERO1, ASID_ASID};
+assign csr_tlbidx_rvalue = {TLBIDX_NE, 1'b0, TLBIDX_PS, 20'b0, TLBIDX_INDEX};
+assign csr_tlbehi_rvalue = {TLBEHI_VPPN,13'b0};
+assign csr_tlbelo0_rvalue = {4'b0, TLBELO0_PPN, 1'b0, TLBELO0_G, TLBELO0_MAT, TLBELO0_PLV, TLBELO0_D, TLBELO0_V};
+assign csr_tlbelo1_rvalue = {4'b0, TLBELO1_PPN, 1'b0, TLBELO1_G, TLBELO1_MAT, TLBELO1_PLV, TLBELO1_D, TLBELO1_V};
+
+assign csr_tlbrentry_rvalue = {TLBRENTRY_HIGH, TLBRENTRY_LOW};
 
 assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
                   | {32{csr_num==`CSR_PRMD}} & csr_prmd_rvalue
@@ -452,13 +961,19 @@ assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
                   | {32{csr_num==`CSR_ERA}} & csr_era_rvalue
                   | {32{csr_num==`CSR_BADV}} & csr_badv_rvalue
                   | {32{csr_num==`CSR_EENTRY}} & csr_eentey_rvalue
+                  | {32{csr_num==`CSR_TLBIDX}} & csr_tlbidx_rvalue
+                  | {32{csr_num==`CSR_TLBEHI}} & csr_tlbehi_rvalue
+                  | {32{csr_num==`CSR_TLBELO0}} & csr_tlbelo0_rvalue
+                  | {32{csr_num==`CSR_TLBELO1}} & csr_tlbelo1_rvalue
+                  | {32{csr_num==`CSR_ASID}} & csr_asid_rvalue
                   | {32{csr_num==`CSR_SAVE0}} & csr_save0_rvalue
                   | {32{csr_num==`CSR_SAVE1}} & csr_save1_rvalue
                   | {32{csr_num==`CSR_SAVE2}} & csr_save2_rvalue
                   | {32{csr_num==`CSR_SAVE3}} & csr_save3_rvalue
                   | {32{csr_num==`CSR_TID}} & csr_tid_rvalue
                   | {32{csr_num==`CSR_TCFG}} & csr_tcfg_rvalue
-                  | {32{csr_num==`CSR_TVAL}} & csr_tval_rvalue;
+                  | {32{csr_num==`CSR_TVAL}} & csr_tval_rvalue
+                  | {32{csr_num==`CSR_TLBRENTRY}} & csr_tlbrentry_rvalue;
 
 /*---------------------------------------------------------------------*/
 
@@ -466,10 +981,27 @@ assign csr_rvalue = {32{csr_num==`CSR_CRMD}} & csr_crmd_rvalue
 
 assign ertn_pc = csr_era_rvalue;
 assign ex_entry = csr_eentey_rvalue;
-
+assign ex_tlbentry = csr_tlbrentry_rvalue;
 assign has_int = ((csr_estat_is[11:0] & csr_ecfg_lie[11:0]) != 12'b0)
                 && (csr_crmd_ie == 1'b1);
 
+
+/*---------------------------------------------------------------------*/
+
+/*------------------------assign output wr-----------------------------*/
+assign tlbelo0_v     =      TLBELO0_V;
+assign tlbelo0_d     =      TLBELO0_D;
+assign tlbelo0_plv   =      TLBELO0_PLV;
+assign tlbelo0_mat   =      TLBELO0_MAT;
+assign tlbelo0_g     =      TLBELO0_G;
+assign tlbelo0_ppn   =      TLBELO0_PPN;
+
+assign tlbelo1_v     =      TLBELO1_V;
+assign tlbelo1_d     =      TLBELO1_D;
+assign tlbelo1_plv   =      TLBELO1_PLV;
+assign tlbelo1_mat   =      TLBELO1_MAT;
+assign tlbelo1_g     =      TLBELO1_G;
+assign tlbelo1_ppn   =      TLBELO1_PPN;
 
 /*---------------------------------------------------------------------*/
 

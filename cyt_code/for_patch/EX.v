@@ -27,44 +27,71 @@ module stage3_EX(
     input               data_sram_addr_ok,
     input               data_sram_data_ok,
 
-    input [63:0] global_time_cnt
+    input [63:0] global_time_cnt,
+
+    //port with tlb.v
+    output [18:0] s1_vppn,
+    output        s1_va_bit12,
+    output [9:0]  s1_asid,
+
+    input         s1_found,
+    input [3:0]   s1_index,
+
+    //tlb add
+    input [18:0] tlbehi_vppn,
+    input [9:0]  tlbasid_asid,
+
+    //tlb crush
+    input        if_ms_crush_with_tlbsrch,
+    input        if_ws_crush_with_tlbsrch,
+    input        tlb_reflush,
+
+    //for translate
+    input crmd_da,      //当前翻译模式
+    input crmd_pg,
+
+    input [1:0] plv,    //当前特权等级, 0-3, 0为最高
+    input [1:0] datm,   //直接地址翻译模式下，load/store操作的存储访问类型
+
+    input DMW0_PLV0,        //为1表示在PLV0下可以使用该窗口进行直接映射地址翻译
+    input DMW0_PLV3,        //为1表示在PLV3下可以使用该窗口进行直接映射地址翻译
+    input [1:0] DMW0_MAT,   //虚地址落在该映射窗口下访存操作的存储类型访问
+    input [2:0] DMW0_PSEG,  //直接映射窗口物理地址高3位
+    input [2:0] DMW0_VSEG,  //直接映射窗口虚地址高3位
+
+    input DMW1_PLV0,        
+    input DMW1_PLV3,       
+    input [1:0] DMW1_MAT,  
+    input [2:0] DMW1_PSEG,  
+    input [2:0] DMW1_VSEG,
+
+    //input s1_found,
+    input [19:0] s1_ppn,
+    input [1:0] s1_plv,
+    input s1_d,
+    input s1_v,
+
+    output invtlb_valid,
+    output [4:0] invtlb_op
 );
 
-/*-----------------------閹恒儲鏁筪s_to_es_bus----------------*/
-/*
-assign ds_to_es_bus[31:   0] = ds_pc;        
-assign ds_to_es_bus[63:  32] = rj_value;  
-assign ds_to_es_bus[95:  64] = rkd_value; 
-assign ds_to_es_bus[127: 96] = imm;       
-assign ds_to_es_bus[132:128] = dest;      
-assign ds_to_es_bus[133:133] = gr_we;     
-assign ds_to_es_bus[134:134] = mem_we;    
-assign ds_to_es_bus[149:135] = alu_op;    
-assign ds_to_es_bus[150:150] = src1_is_pc;   
-assign ds_to_es_bus[151:151] = src2_is_imm;  
-assign ds_to_es_bus[152:152] = res_from_mem; 
-assign ds_to_es_bus[153:153] = need_wait_div;
-assign ds_to_es_bus[155:154] = div_op;
-assign ds_to_es_bus[160:156] = ld_op;
-assign ds_to_es_bus[163:161] = st_op;
+/*------------------------------------------------------------*/
+assign s1_vppn = (es_inst_tlbsrch) ? tlbehi_vppn:
+                (es_inst_invtlb)?
+                 es_rkd_value[31:13] : es_alu_result[31:13];
 
-//task12
-assign ds_to_es_bus[177:164] = ds_csr_num;
-assign ds_to_es_bus[209:178] = ds_csr_wmask;
-assign ds_to_es_bus[210:210] = ds_csr_write;
-assign ds_to_es_bus[211:211] = ds_ertn_flush;
-assign ds_to_es_bus[212:212] = ds_csr;
-assign ds_to_es_bus[213:213] = ds_ex_syscall;
-assign ds_to_es_bus[228:214] = ds_code;
+assign s1_va_bit12 = es_alu_result[12];
 
-//task13
-assign ds_to_es_bus[229:229] = inst_rdcntvl_w || inst_rdcntvh_w; 
-assign ds_to_es_bus[230:230] = inst_rdcntvh_w;
-assign ds_to_es_bus[231:231] = ds_ex_INE;
-assign ds_to_es_bus[232:232] = ds_ex_ADEF;
-assign ds_to_es_bus[233:233] = ds_ex_break;
-assign ds_to_es_bus[234:234] = ds_has_int;
-*/
+assign s1_asid = (es_inst_tlbsrch) ? tlbasid_asid : 
+                 (es_inst_invtlb)?
+                 es_rj_value[9:0] : tlbasid_asid;
+assign invtlb_valid = es_inst_invtlb;
+assign invtlb_op    = es_inst_invtlb_op;
+
+/*------------------------------------------------------------*/
+
+/*-----------------------recerive ds_to_es_bus----------------*/
+
 wire [31:0] es_pc;
 wire [31:0] es_rj_value;
 wire [31:0] es_rkd_value;
@@ -96,12 +123,26 @@ wire        es_ex_ADEF;
 wire        es_ex_break;
 wire        es_has_int;
 
+//task tlb add
+wire        es_inst_tlbsrch;
+wire        es_inst_tlbrd;
+wire        es_inst_tlbwr;
+wire        es_inst_tlbfill;
+wire        es_inst_invtlb;
+wire [4:0]  es_inst_invtlb_op;  
+wire        es_tlb_zombie;
+
+//tlb exception
+wire        es_ex_fetch_tlb_refill;
+wire        es_ex_inst_invalid;
+wire        es_ex_fetch_plv_invalid;
+
 reg [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             ds_to_es_bus_reg <= 0;
-        else if(ertn_flush || wb_ex)
+        else if(ertn_flush || wb_ex || tlb_reflush)
             ds_to_es_bus_reg <= 0;
         else if(ds_to_es_valid && es_allow_in)
             ds_to_es_bus_reg <= ds_to_es_bus;
@@ -135,7 +176,9 @@ always @(posedge clk)
             init <= 0;
     end
 
-assign {es_has_int, es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
+assign {es_ex_fetch_plv_invalid, es_ex_inst_invalid, es_ex_fetch_tlb_refill, es_tlb_zombie,
+        es_inst_invtlb_op, es_inst_invtlb, es_inst_tlbfill, es_inst_tlbwr, es_inst_tlbrd, es_inst_tlbsrch,
+        es_has_int, es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
         es_code, es_ex_syscall, es_csr, es_ertn_flush, es_csr_write, es_csr_wmask, es_csr_num,
         es_st_op, es_ld_op, es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm,
         es_src1_is_pc, es_alu_op, es_mem_we, es_gr_we, es_dest, es_imm,
@@ -153,10 +196,14 @@ wire [31:0] es_calcu_result;  // alu_result or div_result or global_time_cnt
 assign es_calcu_result = es_if_rdcnt ? es_time_cnt_result : es_need_wait_div ? div_result : es_alu_result;
 //task 11 add Unaligned memory access, we should deliver unaligned info
 wire [1:0] es_unaligned_addr;
-assign es_unaligned_addr = es_alu_result[1:0];
+//assign es_unaligned_addr = es_alu_result[1:0];
+//after tlb , we should use p address
+assign es_unaligned_addr = address_p[1:0];
 
 assign es_to_ms_bus[31:0] = es_pc;
-assign es_to_ms_bus[32:32] = es_gr_we & ~es_ex_ALE;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
+assign es_to_ms_bus[32:32] = es_gr_we & ~es_ex_ALE &
+                             ~es_ex_load_invalid & ~es_ex_loadstore_plv_invalid & ~es_ex_loadstore_tlb_fill &
+                             ~es_ex_store_invalid & ~es_ex_store_dirty & ~es_ex_ADEM;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
 assign es_to_ms_bus[33:33] = es_res_from_mem;
 assign es_to_ms_bus[38:34] = es_dest;
 assign es_to_ms_bus[70:39] = es_calcu_result;
@@ -171,7 +218,10 @@ assign es_to_ms_bus[125:125] = es_ertn_flush;
 assign es_to_ms_bus[126:126] = es_csr;
 
 wire [31:0] es_csr_wvalue;
-assign es_csr_wvalue = es_rkd_value;
+//tlbsrch: got --> write ne=0 and index ; miss --> write ne=1 only
+assign es_csr_wvalue = es_rkd_value; //es_inst_tlbsrch ? (s1_found ? {1'b0, 27'b0, s1_index} : {1'b1, 31'b0}) :
+                       
+
 wire [31:0] es_vaddr;
 assign es_vaddr = es_alu_result;
 
@@ -189,6 +239,34 @@ assign es_to_ms_bus[211:180] = es_vaddr;
 //when st, we need raise ms_ready_go when data_ok
 //so we need to tell ms that it's a st inst
 assign es_to_ms_bus[212:212] = es_mem_we;
+
+//tlb add
+assign es_to_ms_bus[213:213] = es_inst_tlbsrch;
+assign es_to_ms_bus[214:214] = es_inst_tlbrd;
+assign es_to_ms_bus[215:215] = es_inst_tlbwr;
+assign es_to_ms_bus[216:216] = es_inst_tlbfill;
+assign es_to_ms_bus[217:217] = es_inst_invtlb;
+
+assign es_to_ms_bus[218:218] = s1_found;    //tlbsrch got
+assign es_to_ms_bus[222:219] = s1_index;    //tlbsrch index
+
+assign es_to_ms_bus[227:223] = es_inst_invtlb_op;
+assign es_to_ms_bus[228:228] = es_tlb_zombie;
+
+assign es_to_ms_bus[238:229] = es_rj_value[9:0];
+
+//tlb exception
+assign es_to_ms_bus[239:239] = es_ex_fetch_tlb_refill;
+assign es_to_ms_bus[240:240] = es_ex_inst_invalid;
+assign es_to_ms_bus[241:241] = es_ex_fetch_plv_invalid;
+assign es_to_ms_bus[242:242] = es_ex_loadstore_tlb_fill;
+assign es_to_ms_bus[243:243] = es_ex_load_invalid;
+assign es_to_ms_bus[244:244] = es_ex_store_invalid;
+assign es_to_ms_bus[245:245] = es_ex_loadstore_plv_invalid;
+assign es_to_ms_bus[246:246] = es_ex_store_dirty;
+
+//ADEM exception
+assign es_to_ms_bus[247:247] = es_ex_ADEM;
 
 /*-------------------------------------------------------*/
 
@@ -324,16 +402,17 @@ always@(posedge clk)
 wire no_exception;
 assign no_exception = ~if_es_ex && ~if_ms_ex && ~wb_ex && ~es_has_int;
 
-// 当MS级的allowin为1时再发出req，是为了保证req与addr_ok握手时allowin也是拉高的
-// 当es流水级或ms,ws有异常时阻止访存，为了维护精确异常。
+
 assign data_sram_req = (ms_allow_in && no_exception) && (es_res_from_mem || es_mem_we) && es_valid;
 reg es_valid;   
 
 wire es_ready_go;
-//对es_ready_go,如果是访存指令，则需要等待与addr_ok握手后再拉高
-//若非访存指令，如果是除法指令则一个clk算不出结果，需要等待结果有效
-assign es_ready_go = if_es_ex ? 1'b1 : (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
+
+assign es_ready_go = if_es_ex ? 1'b1 : 
+                      //es_inst_tlbsrch ? ((if_ms_crush_with_tlbsrch | if_ws_crush_with_tlbsrch) ? 1'b0 : 1'b1) :   //tlb add
+                     (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
                      (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
+
 assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
 assign es_to_ms_valid = es_valid && es_ready_go;
 
@@ -366,13 +445,6 @@ assign real_wdata = es_st_op[0] ? es_rkd_value :
                     es_st_op[1] ? {4{es_rkd_value[7:0]}} :
                     es_st_op[2] ? {2{es_rkd_value[15:0]}} : 32'b0;
 
-//task12 add 
-/*
-庆幸的是，就目前
-支持的指令和异常类型来说，指令在访存级和写回级不会再判断出新的异常了。也就是说，位于
-执行级的 store 指令只需要检查当前访存级和写回级上有没有已标记为异常的指令就可以了，当
-然，它也在执行级检查自己有没有被标记上异常。
-*/
 
 //task13 add ALE error load or store address
 
@@ -386,13 +458,16 @@ assign if_lh_and_sh = (es_res_from_mem && (es_ld_op[3] || es_ld_op[4])) || (es_m
 
 assign es_ex_ALE = ((if_lw_and_sw && (es_unaligned_addr[1] | es_unaligned_addr[0]))
                     || (if_lh_and_sh && es_unaligned_addr[0])) && es_valid ;
+//maybe have problem
+wire es_ex_ADEM;
+assign es_ex_ADEM = if_ppt && (plv ==3) &&(es_res_from_mem||es_mem_we)?es_alu_result[31]:1'b0;
 
 wire if_es_ex;
-assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break || es_has_int;
+assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break || es_has_int 
+                || es_ex_fetch_tlb_refill || es_ex_inst_invalid || es_ex_fetch_plv_invalid
+                || es_ex_loadstore_tlb_fill || es_ex_load_invalid || es_ex_store_invalid
+                || es_ex_loadstore_plv_invalid || es_ex_store_dirty || es_ex_ADEM;
 
-/*
-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
-*/
 
 /*
     output              data_sram_req,
@@ -421,8 +496,68 @@ assign data_sram_wstrb = es_st_op[0] ? 4'b1111 :
                                 es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
                          es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
 
-//assign data_sram_addr  = {es_alu_result[31:2],2'b00};
-assign data_sram_addr  = es_alu_result;
+/*----------------------------------------------------------------------*/
+
+wire [31:0] address_dt;     //dt --> directly translate
+assign address_dt = es_alu_result;
+
+wire [31:0] address_dmw0;
+assign address_dmw0 = {DMW0_PSEG, es_alu_result[28:0]};
+
+wire [31:0] address_dmw1;
+assign address_dmw1 = {DMW1_PSEG, es_alu_result[28:0]};
+
+wire [31:0] address_ptt;
+assign address_ptt = {s1_ppn, es_alu_result[11:0]};
+
+wire if_dt;
+assign if_dt = crmd_da & ~crmd_pg;   //da=1, pg=0 --> 直接地址翻译模式
+
+wire if_indt;
+assign if_indt = ~crmd_da & crmd_pg;   //da=0, pg=1 --> 映射地址翻译模式
+
+wire if_dmw0;
+assign if_dmw0 = ((plv == 0 && DMW0_PLV0) || (plv == 3 && DMW0_PLV3)) &&
+                    (datm == DMW0_MAT) && (es_alu_result[31:29] == DMW0_VSEG);
+                    
+wire if_dmw1;
+assign if_dmw1 = ((plv == 0 && DMW1_PLV0) || (plv == 3 && DMW1_PLV3)) &&
+                    (datm == DMW1_MAT) && (es_alu_result[31:29] == DMW1_VSEG);
+
+wire [31:0] address_p;
+assign address_p = if_dt ? address_dt : if_indt ?
+                (if_dmw0 ? address_dmw0 : if_dmw1 ? address_dmw1 : address_ptt) : 0;
+
+/*
+1: es_ex_loadstore_tlb_refill   TLB重填例外
+2: es_ex_load_invalid           load操作页无效例外
+3: es_ex_store_invalid          store操作页无效例外
+4: es_ex_loadstore_plv_invalid  页特权等级不合规例外
+5：es_ex_store_dirty               页修改例外  
+*/
+
+wire es_ex_loadstore_tlb_fill;
+wire es_ex_load_invalid;
+wire es_ex_store_invalid;
+wire es_ex_loadstore_plv_invalid;
+wire es_ex_store_dirty;
+
+wire if_ppt;
+assign if_ppt = if_indt & ~(if_dmw0 | if_dmw1);
+
+assign es_ex_loadstore_tlb_fill = if_ppt & (es_res_from_mem | es_mem_we) & ~s1_found;
+assign es_ex_load_invalid = if_ppt & es_res_from_mem & s1_found & ~s1_v;
+assign es_ex_store_invalid = if_ppt & es_mem_we & s1_found & ~s1_v;
+assign es_ex_loadstore_plv_invalid = if_ppt & (es_res_from_mem | es_mem_we) & s1_found
+                                    & s1_v & (plv > s1_plv);
+assign es_ex_store_dirty = if_ppt & es_mem_we & s1_found & s1_v & ~s1_d & 
+                            (plv == 2'b00 || (plv == 2'b01 &&(s1_plv == 2'b01 || s1_plv == 2'b10 || s1_plv == 2'b11)) ||
+                            (plv == 2'b10 &&( s1_plv == 2'b10 || s1_plv == 2'b11)) ||
+                            (plv == 2'b11 &&(s1_plv == 2'b11)) );
+
+/*----------------------------------------------------------------------*/
+
+assign data_sram_addr  = address_p;
 assign data_sram_wdata = real_wdata;        
 /*--------------------------------------------------------*/
 

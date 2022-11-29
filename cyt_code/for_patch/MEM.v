@@ -18,36 +18,14 @@ module stage4_MEM(
     output                           if_ms_ex,
     
     input        data_sram_data_ok,
-    input [31:0] data_sram_rdata
+    input [31:0] data_sram_rdata,
+
+    //tlb crush
+    output       if_ms_crush_with_tlbsrch,
+    input        tlb_reflush
 );
 
 /*-----------------------recerive es_to_ms_bus----------------*/
-/*
-assign es_to_ms_bus[31:0] = es_pc;
-assign es_to_ms_bus[32:32] = es_gr_we;
-assign es_to_ms_bus[33:33] = es_res_from_mem;
-assign es_to_ms_bus[38:34] = es_dest;
-assign es_to_ms_bus[70:39] = es_calcu_result;
-assign es_to_ms_bus[72:71] = es_unaligned_addr;
-assign es_to_ms_bus[77:73] = es_ld_op;
-
-//task12
-assign es_to_ms_bus[91:78] = es_csr_rvalue;
-assign es_to_ms_bus[123:92] = es_csr_wmask;
-assign es_to_ms_bus[124:124] = es_csr_write;
-assign es_to_ms_bus[125:125] = es_ertn_flush;
-assign es_to_ms_bus[126:126] = es_csr;
-assign es_to_ms_bus[158:127] = es_csr_wvalue;
-assign es_to_ms_bus[159:159] = es_ex_syscall;
-assign es_to_ms_bus[174:160] = es_code;
-assign es_to_ms_bus[175:175] = es_ex_INE;
-assign es_to_ms_bus[176:176] = es_ex_ADEF;
-assign es_to_ms_bus[177:177] = es_ex_ALE;
-assign es_to_ms_bus[178:178] = es_ex_break;
-assign es_to_ms_bus[179:179] = es_has_int;
-assign es_to_ms_bus[211:180] = es_vaddr;
-assign es_to_ms_bus[212:212] = es_mem_we;
-*/
 
 wire [31:0] ms_pc;
 wire ms_gr_we;
@@ -74,18 +52,51 @@ wire        ms_has_int;
 wire [31:0] ms_vaddr;
 wire        ms_mem_we;
 
+//tlb add
+wire        ms_inst_tlbsrch;
+wire        ms_inst_tlbrd;
+wire        ms_inst_tlbwr;
+wire        ms_inst_tlbfill;
+wire        ms_inst_invtlb;
+
+wire        ms_s1_found;
+wire [3:0]  ms_s1_index;
+
+wire [4:0]  ms_inst_invtlb_op;
+wire        ms_tlb_zombie;
+wire [9:0]  ms_s1_asid;
+
+//tlb exception
+wire ms_ex_fetch_tlb_refill;
+wire ms_ex_inst_invalid;
+wire ms_ex_fetch_plv_invalid;
+wire ms_ex_loadstore_tlb_fill;
+wire ms_ex_load_invalid;
+wire ms_ex_store_invalid;
+wire ms_ex_loadstore_plv_invalid;
+wire ms_ex_store_dirty;
+
+//ADEM exception
+wire        ms_ex_ADEM;
 reg [`WIDTH_ES_TO_MS_BUS-1:0] es_to_ms_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             es_to_ms_bus_reg <= 0;
-        else if(ertn_flush || wb_ex)
+        else if(ertn_flush || wb_ex || tlb_reflush)
             es_to_ms_bus_reg <= 0;
         else if(es_to_ms_valid && ms_allow_in)
             es_to_ms_bus_reg <= es_to_ms_bus;
+        //else if(~ms_mem_we & ~ms_res_from_mem)
+            //es_to_ms_bus_reg <= 0;
     end 
 
-assign {ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
+assign {ms_ex_ADEM, ms_ex_store_dirty, ms_ex_loadstore_plv_invalid, ms_ex_store_invalid,
+        ms_ex_load_invalid, ms_ex_loadstore_tlb_fill, ms_ex_fetch_plv_invalid,
+        ms_ex_inst_invalid, ms_ex_fetch_tlb_refill,
+        ms_s1_asid, ms_tlb_zombie,
+        ms_inst_invtlb_op,ms_s1_index, ms_s1_found, ms_inst_invtlb, ms_inst_tlbfill, ms_inst_tlbwr, ms_inst_tlbrd, ms_inst_tlbsrch,
+        ms_mem_we, ms_vaddr, ms_has_int, ms_ex_break, ms_ex_ALE, ms_ex_ADEF, ms_ex_INE,
         ms_code, ms_ex_syscall, ms_csr_wvalue, ms_csr, ms_ertn_flush, ms_csr_write, ms_csr_wmask, ms_csr_num,
         ms_ld_op, ms_unaligned_addr, ms_alu_result, ms_dest,
         ms_res_from_mem, ms_gr_we, ms_pc} = es_to_ms_bus_reg;
@@ -139,14 +150,39 @@ assign ms_to_ws_bus[169:169] = ms_ex_ALE;
 assign ms_to_ws_bus[170:170] = ms_ex_break;
 assign ms_to_ws_bus[171:171] = ms_has_int;
 assign ms_to_ws_bus[203:172] = ms_vaddr;
+
+//tlb add
+assign ms_to_ws_bus[204:204] = ms_inst_tlbsrch;
+assign ms_to_ws_bus[205:205] = ms_inst_tlbrd;
+assign ms_to_ws_bus[206:206] = ms_inst_tlbwr;
+assign ms_to_ws_bus[207:207] = ms_inst_tlbfill;
+assign ms_to_ws_bus[208:208] = ms_inst_invtlb;
+
+assign ms_to_ws_bus[209:209] = ms_s1_found;    //tlbsrch got
+assign ms_to_ws_bus[213:210] = ms_s1_index;    //tlbsrch index
+
+assign ms_to_ws_bus[218:214] = ms_inst_invtlb_op;
+assign ms_to_ws_bus[219:219] = ms_tlb_zombie;
+assign ms_to_ws_bus[229:220] = ms_s1_asid;
+
+assign ms_to_ws_bus[230:230] = ms_ex_fetch_tlb_refill;
+assign ms_to_ws_bus[231:231] = ms_ex_inst_invalid;
+assign ms_to_ws_bus[232:232] = ms_ex_fetch_plv_invalid;
+assign ms_to_ws_bus[233:233] = ms_ex_loadstore_tlb_fill;
+assign ms_to_ws_bus[234:234] = ms_ex_load_invalid;
+assign ms_to_ws_bus[235:235] = ms_ex_store_invalid;
+assign ms_to_ws_bus[236:236] = ms_ex_loadstore_plv_invalid;
+assign ms_to_ws_bus[237:237] = ms_ex_store_dirty;
+
+//ADEM exception
+assign ms_to_ws_bus[238:238] = ms_ex_ADEM;
 /*-------------------------------------------------------*/
 
 /*--------------------------valid------------------------*/
 reg ms_valid;    
 
 wire ms_ready_go;
-//当是load指令时，需要等待数据握手
-//data_ok拉高时表示store已经写入数据 或 load已经取到数据，将ms_ready_go拉高
+
 assign ms_ready_go = if_ms_ex ? 1'b1 : (ms_mem_we || ms_res_from_mem) ? data_sram_data_ok : 1'b1;
 assign ms_allow_in = !ms_valid || ms_ready_go && ws_allow_in;
 /*
@@ -161,7 +197,7 @@ when ms_to_ws_valid down, ws will not receive bus_reg
 and when ertn_flush / wb_ex disappear in next clk, 
 ms_to_ws_valid will raise again 
 */
-assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex;
+assign ms_to_ws_valid = (ms_valid && ms_ready_go) & ~ertn_flush & ~wb_ex & ~tlb_reflush;
 
 always @(posedge clk)
     begin
@@ -185,7 +221,26 @@ assign ms_to_ds_bus = {ms_to_ws_valid,ms_valid,ms_gr_we,ms_dest,if_ms_load,ms_fi
 /*--------------------deliver if_ms_ex to es------------------*/
 //this signal is for helping ex_stage to judge if it should cancel inst_store due to exception
 // in task 12 we just consider syscall
-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
+assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int
+                || ms_ex_fetch_tlb_refill || ms_ex_inst_invalid || ms_ex_fetch_plv_invalid
+                || ms_ex_loadstore_tlb_fill || ms_ex_load_invalid || ms_ex_store_invalid
+                || ms_ex_loadstore_plv_invalid || ms_ex_store_dirty || ms_ex_ADEM;
+
+/*-------------------------------------------------------*/
+
+//tlb add
+/*-------------------deliver if_ms_crush_tlbsrch---------------------*/
+wire if_csr_crush_with_tlbsrch;
+
+assign if_csr_crush_with_tlbsrch = ms_csr_write && (ms_csr_num == `CSR_ASID 
+                                                    || ms_csr_num == `CSR_TLBEHI);
+
+wire if_tlbrd_crush_with_tlbsrch;
+
+assign if_tlbrd_crush_with_tlbsrch = ms_inst_tlbrd;
+
+assign if_ms_crush_with_tlbsrch = if_csr_crush_with_tlbsrch
+                                || if_tlbrd_crush_with_tlbsrch;
 
 /*-------------------------------------------------------*/
 
