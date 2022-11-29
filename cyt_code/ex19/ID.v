@@ -156,14 +156,9 @@ assign ds_ex_INE   =     (~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | ins
                          inst_st_h | inst_blt | inst_bge | inst_bltu | inst_bgeu |
                          inst_csrrd | inst_csrwr | inst_csrxchg | inst_ertn | inst_syscall |
                          inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid | inst_break |
-<<<<<<< HEAD
                          inst_tlbsrch | inst_tlbrd | inst_tlbwr | inst_tlbfill | inst_invtlb) || (inst_invtlb && 
                          ~(inst_invtlb_op == 5'h6 || inst_invtlb_op == 5'h5 || inst_invtlb_op == 5'h4 || inst_invtlb_op[4:2] == 3'h0))) 
                          && (ds_pc != 32'b0) && (~ds_ex_ADEF);
-=======
-                         inst_tlbsrch | inst_tlbrd | inst_tlbwr | inst_tlbfill | inst_invtlb) || (inst_invtlb && inst_invtlb_op > 5'h6)) 
-                         && (ds_pc != 32'b0);
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 wire        need_ui5;
 wire        need_SignExtend_si12;

@@ -252,13 +252,8 @@ always @(posedge clk)
             ms_to_ws_bus_reg <= ms_to_ws_bus;
         else if((wb_ex || ertn_flush || tlb_reflush) && ws_valid)
             ms_to_ws_bus_reg <= 0;
-<<<<<<< HEAD
         //else
            // ms_to_ws_bus_reg <= 0;
-=======
-        else
-            ms_to_ws_bus_reg <= 0;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     end 
 
 assign {ws_ex_ADEM, ws_ex_store_dirty, ws_ex_loadstore_plv_invalid, ws_ex_store_invalid, ws_ex_load_invalid, ws_ex_loadstore_tlb_fill,

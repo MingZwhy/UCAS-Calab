@@ -13,19 +13,11 @@ module tlb
     *  -------------------------------------------------
     * 30                  12       11  10         1   0
     *
-<<<<<<< HEAD
     * E:     (tlb_e)     Îª1±íÊ¾ËùÔÚTLB±íÏî·Ç¿Õ£¬¿ÉÒÔ²ÎÓë²éÕÒÆ¥Åä
     * ASID:  (tlb_asid)  µØÖ·¿Õ¼ä±êÊ¶£¬ÓÃÓÚÇø·Ö²»Í¬½ø³ÌÖÐµÄÍ¬ÑùµÄÐéµØÖ·
     * G:     (tlb_g)     È«¾Ö±êÖ¾Î»£¬µ±gÎª1Ê±Îª²»½øÐÐasidÒ»ÖÂÐÔµÄ¼ì²é
     * PS£º   (tlb_ps)    Ò³´óÐ¡ --> Ö¸¶¨¸ÃÒ³±íÏî´æ·ÅµÄÒ³´óÐ¡ (12-->4KB, 22-->4MB)
     * VPPN:  (tlb_vppn)  ÐéË«Ò³ºÅ£¬ÐéÒ³ºÅµÄ×îµÍÎ»²»ÐèÒª´æ·ÅÔÚTLBÖÐ(±»²éÕÒÐéÒ³ºÅ×îµÍÎ»¾ö¶¨ÆæÊýºÅ/Å¼ÊýºÅ)
-=======
-    * E:     (tlb_e)     Îª1ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½TLBï¿½ï¿½ï¿½ï¿½Ç¿Õ£ï¿½ï¿½ï¿½ï¿½Ô²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ¥ï¿½ï¿½
-    * ASID:  (tlb_asid)  ï¿½ï¿½Ö·ï¿½Õ¼ï¿½ï¿½Ê¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö²ï¿½Í¬ï¿½ï¿½ï¿½ï¿½ï¿½Ðµï¿½Í¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö·
-    * G:     (tlb_g)     È«ï¿½Ö±ï¿½Ö¾Î»ï¿½ï¿½ï¿½ï¿½gÎª1Ê±Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½asidÒ»ï¿½ï¿½ï¿½ÔµÄ¼ï¿½ï¿½
-    * PSï¿½ï¿½   (tlb_ps)    Ò³ï¿½ï¿½Ð¡ --> Ö¸ï¿½ï¿½ï¿½ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ï¿½Åµï¿½Ò³ï¿½ï¿½Ð¡ (12-->4KB, 22-->4MB)
-    * VPPN:  (tlb_vppn)  ï¿½ï¿½Ë«Ò³ï¿½Å£ï¿½ï¿½ï¿½Ò³ï¿½Åµï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½ï¿½TLBï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½/Å¼ï¿½ï¿½ï¿½ï¿½)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     */
 
     /* TLB phys_exchange part
@@ -36,19 +28,11 @@ module tlb
     *  ----------------------------------------------------
     * 23                  4          3          2    1   0
     *
-<<<<<<< HEAD
     * v:     (tlb_v)     Îª1±íÃ÷¸Ã±íÏîÊÇÓÐÐ§µÄÇÒ±»·ÃÎÊ¹ýµÄ
     * d:     (tlb_d)     Îª1±íÃ÷¸ÃÒ³±íÏîËù¶ÔÓ¦µÄµØÖ··¶Î§ÒÑ¾­ÓÐÔàÊý¾Ý
     * mat:   (tlb_mat)   ´æ´¢·ÃÎÊÀàÐÍ
     * plv£º  (tlb_plv)   ¸ÃÒ³±íÏî¶ÔÓ¦µÄÌØÈ¨µÈ¼¶
     * ppn:   (tlb_ppn)   ÎïÀíÒ³ºÅ(20Î»)
-=======
-    * v:     (tlb_v)     Îª1ï¿½ï¿½ï¿½ï¿½ï¿½Ã±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð§ï¿½ï¿½ï¿½Ò±ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ï¿½
-    * d:     (tlb_d)     Îª1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó¦ï¿½Äµï¿½Ö·ï¿½ï¿½Î§ï¿½Ñ¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
-    * mat:   (tlb_mat)   ï¿½æ´¢ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
-    * plvï¿½ï¿½  (tlb_plv)   ï¿½ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ï¿½Ó¦ï¿½ï¿½ï¿½ï¿½È¨ï¿½È¼ï¿½
-    * ppn:   (tlb_ppn)   ï¿½ï¿½ï¿½ï¿½Ò³ï¿½ï¿½(20Î»)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     */
 
     //search port 0 (for fetch)
@@ -120,7 +104,7 @@ module tlb
     output wire [1:0]                   r_plv1,
     output wire [1:0]                   r_mat1,
     output wire                         r_d1,
-    output wire                         r_v1,
+    output wire                         r_v1
 
     //for invtlb op
     /* INVTLB OP
@@ -129,7 +113,6 @@ module tlb
     *  ---------------------------------------------------------
     * 7      6            5                  4     3     2     0
     */
-    input  wire                         invtlb_no_g
 );
 
 reg [TLBNUM-1:0]    tlb_e;
@@ -137,21 +120,17 @@ reg [TLBNUM-1:0]    tlb_ps4MB;  //pagesize 1:4MB, 0:4KB
 reg [18:0]          tlb_vppn    [TLBNUM-1:0];
 //reg [5:0]           tlb_ps      [TLBNUM-1:0];     //no need, tlb_ps4MB instead
 reg [9:0]           tlb_asid    [TLBNUM-1:0];
-<<<<<<< HEAD
 reg [TLBNUM-1:0]    tlb_g;      //patch:ÕâÀï¶¨ÒåÎª16Î»µÄ¼Ä´æÆ÷£¬·½±ãwrÖÐ½øÐÐ°´Î»»ò²Ù×÷
-=======
-reg [TLBNUM-1:0]    tlb_g;      //patch:ï¿½ï¿½ï¿½ï¶¨ï¿½ï¿½Îª16Î»ï¿½Ä¼Ä´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½wrï¿½Ð½ï¿½ï¿½Ð°ï¿½Î»ï¿½ï¿½ï¿½ï¿½ï¿½
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 reg [19:0]          tlb_ppn0    [TLBNUM-1:0];
 reg [1:0]           tlb_plv0    [TLBNUM-1:0];
 reg [1:0]           tlb_mat0    [TLBNUM-1:0];
-reg                 tlb_d0      [TLBNUM-1:0];
-reg                 tlb_v0      [TLBNUM-1:0];
+reg  [TLBNUM-1:0]               tlb_d0      ;
+reg  [TLBNUM-1:0]               tlb_v0      ;
 reg [19:0]          tlb_ppn1    [TLBNUM-1:0];
 reg [1:0]           tlb_plv1    [TLBNUM-1:0];
 reg [1:0]           tlb_mat1    [TLBNUM-1:0];
-reg                 tlb_d1      [TLBNUM-1:0];
-reg                 tlb_v1      [TLBNUM-1:0];
+reg  [TLBNUM-1:0]               tlb_d1      ;
+reg  [TLBNUM-1:0]               tlb_v1      ;
 
 /*
 match requirement1: 
@@ -297,16 +276,52 @@ assign match1[15] = (s1_vppn[18:10] == tlb_vppn[15][18:10])
                 && (tlb_ps4MB[15] || s1_vppn[9:0] == tlb_vppn[15][9:0])
                 && ((s1_asid == tlb_asid[15]) || tlb_g[15]);
 
+wire [TLBNUM-1:0] cond1;
+wire [TLBNUM-1:0] cond2;
+wire [TLBNUM-1:0] cond3;
+wire [TLBNUM-1:0] cond4;
+wire [TLBNUM-1:0] inv_match;
+assign cond1 = ~tlb_g;
+assign cond2 = tlb_g;
+assign cond3 = {{s1_asid == tlb_asid[15]},{s1_asid == tlb_asid[14]},{s1_asid == tlb_asid[13]},
+                            {s1_asid == tlb_asid[12]},{s1_asid == tlb_asid[11]},{s1_asid == tlb_asid[10]},{s1_asid == tlb_asid[9]},
+                            {s1_asid == tlb_asid[8]},{s1_asid == tlb_asid[7]},{s1_asid == tlb_asid[6]},{s1_asid == tlb_asid[5]},
+                            {s1_asid == tlb_asid[4]},{s1_asid == tlb_asid[3]},{s1_asid == tlb_asid[2]},{s1_asid == tlb_asid[1]},
+                            {s1_asid == tlb_asid[0]}};
+
+assign cond4 ={{(s1_vppn[18:10] == tlb_vppn[15][18:10]) && (tlb_ps4MB[15] || s1_vppn[9:0] == tlb_vppn[15][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[14][18:10]) && (tlb_ps4MB[14] || s1_vppn[9:0] == tlb_vppn[14][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[13][18:10]) && (tlb_ps4MB[13] || s1_vppn[9:0] == tlb_vppn[13][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[12][18:10]) && (tlb_ps4MB[12] || s1_vppn[9:0] == tlb_vppn[12][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[11][18:10]) && (tlb_ps4MB[11] || s1_vppn[9:0] == tlb_vppn[11][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[10][18:10]) && (tlb_ps4MB[10] || s1_vppn[9:0] == tlb_vppn[10][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[9][18:10]) && (tlb_ps4MB[9] || s1_vppn[9:0] == tlb_vppn[9][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[8][18:10]) && (tlb_ps4MB[8] || s1_vppn[9:0] == tlb_vppn[8][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[7][18:10]) && (tlb_ps4MB[7] || s1_vppn[9:0] == tlb_vppn[7][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[6][18:10]) && (tlb_ps4MB[6] || s1_vppn[9:0] == tlb_vppn[6][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[5][18:10]) && (tlb_ps4MB[5] || s1_vppn[9:0] == tlb_vppn[5][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[4][18:10]) && (tlb_ps4MB[4] || s1_vppn[9:0] == tlb_vppn[4][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[3][18:10]) && (tlb_ps4MB[3] || s1_vppn[9:0] == tlb_vppn[3][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[2][18:10]) && (tlb_ps4MB[2] || s1_vppn[9:0] == tlb_vppn[2][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[1][18:10]) && (tlb_ps4MB[1] || s1_vppn[9:0] == tlb_vppn[1][9:0])},
+                          {(s1_vppn[18:10] == tlb_vppn[0][18:10]) && (tlb_ps4MB[0] || s1_vppn[9:0] == tlb_vppn[0][9:0])}
+};
+assign inv_match = (invtlb_op == 5'h0 || invtlb_op == 5'h1) ?
+                   (cond1 | cond2):
+                   invtlb_op == 5'h2 ?
+                   cond2:
+                   invtlb_op == 5'h3 ?
+                   cond1:
+                   invtlb_op == 5'h4 ?
+                   cond1 & cond3:
+                   invtlb_op == 5'h5 ?
+                   cond1 & cond3 & cond4:
+                   (cond2 | cond3) & cond4;
 /*---------------------------------s0,s1 output----------------------------------*/
 
 // whether found or not up to if match all zero
 assign s0_found = |match0[TLBNUM-1:0];
-<<<<<<< HEAD
-assign s1_found = (|match1[TLBNUM-1:0] && ~invtlb_no_g) || (|match1[TLBNUM-1:0] && invtlb_no_g && ~tlb_g[s1_index]);
-=======
-assign s1_found = (invtlb_valid) ? (|match1[TLBNUM-1:0] && ~invtlb_no_g) || (|match1[TLBNUM-1:0] && invtlb_no_g && ~tlb_g[s1_index])
-                  :|match1[TLBNUM-1:0];
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+assign s1_found = |match1[TLBNUM-1:0];
 
 
 assign s0_index = match0[0]  ? 4'b0000 :
@@ -429,51 +444,9 @@ always @(posedge clk)
                 tlb_d1[w_index]     <= w_d1;
                 tlb_v1[w_index]     <= w_v1;
             end
-        else if(invtlb_valid)
+        else if(invtlb_valid && invtlb_op < 5'h7)
         begin
-            if(invtlb_op == 5'h0 || invtlb_op == 5'h1)
-                begin
-                    tlb_e               <= 16'b0;
-                end
-            else if(invtlb_op == 5'h2)
-                begin
-<<<<<<< HEAD
-                    tlb_e               <= (~tlb_g & tlb_e);
-                end
-            else if(invtlb_op == 5'h3)
-                begin
-                    tlb_e               <= (tlb_g & tlb_e);
-=======
-                    tlb_e               <= (tlb_g | tlb_e);
-                end
-            else if(invtlb_op == 5'h3)
-                begin
-                    tlb_e               <= (~tlb_g | tlb_e);
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
-                end
-            else if(invtlb_op == 5'h4)
-                begin
-                    tlb_e[0]               <= tlb_e[0] & ~(~tlb_g[0] & tlb_asid[0] == w_asid);
-                    tlb_e[1]               <= tlb_e[1] & ~(~tlb_g[1] & tlb_asid[1] == w_asid);
-                    tlb_e[2]               <= tlb_e[2] & ~(~tlb_g[2] & tlb_asid[2] == w_asid);
-                    tlb_e[3]               <= tlb_e[3] & ~(~tlb_g[3] & tlb_asid[3] == w_asid);
-                    tlb_e[4]               <= tlb_e[4] & ~(~tlb_g[4] & tlb_asid[4] == w_asid);
-                    tlb_e[5]               <= tlb_e[5] & ~(~tlb_g[5] & tlb_asid[5] == w_asid);
-                    tlb_e[6]               <= tlb_e[6] & ~(~tlb_g[6] & tlb_asid[6] == w_asid);
-                    tlb_e[7]               <= tlb_e[7] & ~(~tlb_g[7] & tlb_asid[7] == w_asid);
-                    tlb_e[8]               <= tlb_e[8] & ~(~tlb_g[8] & tlb_asid[8] == w_asid);
-                    tlb_e[9]               <= tlb_e[9] & ~(~tlb_g[9] & tlb_asid[9] == w_asid);
-                    tlb_e[10]              <= tlb_e[10] & ~(~tlb_g[10] & tlb_asid[10] == w_asid);
-                    tlb_e[11]              <= tlb_e[11] & ~(~tlb_g[11] & tlb_asid[11] == w_asid);
-                    tlb_e[12]              <= tlb_e[12] & ~(~tlb_g[12] & tlb_asid[12] == w_asid);
-                    tlb_e[13]              <= tlb_e[13] & ~(~tlb_g[13] & tlb_asid[13] == w_asid);
-                    tlb_e[14]              <= tlb_e[14] & ~(~tlb_g[14] & tlb_asid[14] == w_asid);
-                    tlb_e[15]              <= tlb_e[15] & ~(~tlb_g[15] & tlb_asid[15] == w_asid);
-                end
-            else if(invtlb_op == 5'h5 || invtlb_op == 5'h6)
-                begin
-                    tlb_e[w_index]         <= 1'b0;
-                end
+                tlb_e               <= ~inv_match & tlb_e;
         end
     end
 

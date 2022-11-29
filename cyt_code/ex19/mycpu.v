@@ -579,11 +579,7 @@ stage5_WB wb(
 
     .r_ppn1             (r_ppn1),
     .r_plv1             (r_plv1),
-<<<<<<< HEAD
     .r_mat1             (r_mat1),
-=======
-    .r_mat1             (r_plv1),
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     .r_d1               (r_d1),
     .r_v1               (r_v1),
 
@@ -788,11 +784,7 @@ tlb my_tlb(
 
     .r_ppn1                 (r_ppn1),
     .r_plv1                 (r_plv1),
-<<<<<<< HEAD
     .r_mat1                 (r_mat1),
-=======
-    .r_mat1                 (r_plv1),
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     .r_d1                   (r_d1),
     .r_v1                   (r_v1)
 );

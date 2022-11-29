@@ -40,11 +40,10 @@ module stage3_EX(
     //tlb add
     input [18:0] tlbehi_vppn,
     input [9:0]  tlbasid_asid,
-<<<<<<< HEAD
-    output       invtlb_no_g,
 
     //tlb crush
     input        if_ms_crush_with_tlbsrch,
+    input        if_ws_crush_with_tlbsrch,
     input        tlb_reflush,
 
     //for translate
@@ -70,31 +69,24 @@ module stage3_EX(
     input [19:0] s1_ppn,
     input [1:0] s1_plv,
     input s1_d,
-    input s1_v
-=======
-    output       invtlb_no_g
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+    input s1_v,
+
+    output invtlb_valid,
+    output [4:0] invtlb_op
 );
 
 /*------------------------------------------------------------*/
 assign s1_vppn = (es_inst_tlbsrch) ? tlbehi_vppn:
-                (es_inst_invtlb && (es_inst_invtlb_op == 5'h5||es_inst_invtlb_op == 5'h6))?
-<<<<<<< HEAD
+                (es_inst_invtlb)?
                  es_rkd_value[31:13] : es_alu_result[31:13];
 
 assign s1_va_bit12 = es_alu_result[12];
 
 assign s1_asid = (es_inst_tlbsrch) ? tlbasid_asid : 
-                 (es_inst_invtlb && (es_inst_invtlb_op == 5'h5 || es_inst_invtlb_op == 5'h6))?
+                 (es_inst_invtlb)?
                  es_rj_value[9:0] : tlbasid_asid;
-=======
-                 es_rkd_value:19'b0;
-assign s1_va_bit12 = 1'b1;
-assign s1_asid = (es_inst_tlbsrch) ? tlbasid_asid : 
-                 (es_inst_invtlb && (es_inst_invtlb_op == 5'h5||es_inst_invtlb_op == 5'h6))?
-                 es_rj_value[9:0]:10'b0;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
-assign invtlb_no_g = (es_inst_invtlb_op == 5'h5);
+assign invtlb_valid = es_inst_invtlb;
+assign invtlb_op    = es_inst_invtlb_op;
 
 /*------------------------------------------------------------*/
 
@@ -138,26 +130,19 @@ wire        es_inst_tlbwr;
 wire        es_inst_tlbfill;
 wire        es_inst_invtlb;
 wire [4:0]  es_inst_invtlb_op;  
-<<<<<<< HEAD
 wire        es_tlb_zombie;
 
 //tlb exception
 wire        es_ex_fetch_tlb_refill;
 wire        es_ex_inst_invalid;
 wire        es_ex_fetch_plv_invalid;
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 reg [`WIDTH_DS_TO_ES_BUS-1:0] ds_to_es_bus_reg;
 always @(posedge clk)
     begin
         if(reset)
             ds_to_es_bus_reg <= 0;
-<<<<<<< HEAD
         else if(ertn_flush || wb_ex || tlb_reflush)
-=======
-        else if(ertn_flush || wb_ex)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
             ds_to_es_bus_reg <= 0;
         else if(ds_to_es_valid && es_allow_in)
             ds_to_es_bus_reg <= ds_to_es_bus;
@@ -191,12 +176,8 @@ always @(posedge clk)
             init <= 0;
     end
 
-<<<<<<< HEAD
 assign {es_ex_fetch_plv_invalid, es_ex_inst_invalid, es_ex_fetch_tlb_refill, es_tlb_zombie,
         es_inst_invtlb_op, es_inst_invtlb, es_inst_tlbfill, es_inst_tlbwr, es_inst_tlbrd, es_inst_tlbsrch,
-=======
-assign {es_inst_invtlb_op, es_inst_invtlb, es_inst_tlbfill, es_inst_tlbwr, es_inst_tlbrd, es_inst_tlbsrch,
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
         es_has_int, es_ex_break, es_ex_ADEF, es_ex_INE, es_rdcnt_high_or_low, es_if_rdcnt,
         es_code, es_ex_syscall, es_csr, es_ertn_flush, es_csr_write, es_csr_wmask, es_csr_num,
         es_st_op, es_ld_op, es_div_op, es_need_wait_div, es_res_from_mem, es_src2_is_imm,
@@ -215,7 +196,6 @@ wire [31:0] es_calcu_result;  // alu_result or div_result or global_time_cnt
 assign es_calcu_result = es_if_rdcnt ? es_time_cnt_result : es_need_wait_div ? div_result : es_alu_result;
 //task 11 add Unaligned memory access, we should deliver unaligned info
 wire [1:0] es_unaligned_addr;
-<<<<<<< HEAD
 //assign es_unaligned_addr = es_alu_result[1:0];
 //after tlb , we should use p address
 assign es_unaligned_addr = address_p[1:0];
@@ -223,13 +203,7 @@ assign es_unaligned_addr = address_p[1:0];
 assign es_to_ms_bus[31:0] = es_pc;
 assign es_to_ms_bus[32:32] = es_gr_we & ~es_ex_ALE &
                              ~es_ex_load_invalid & ~es_ex_loadstore_plv_invalid & ~es_ex_loadstore_tlb_fill &
-                             ~es_ex_store_invalid & ~es_ex_store_dirty;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
-=======
-assign es_unaligned_addr = es_alu_result[1:0];
-
-assign es_to_ms_bus[31:0] = es_pc;
-assign es_to_ms_bus[32:32] = es_gr_we & ~es_ex_ALE;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+                             ~es_ex_store_invalid & ~es_ex_store_dirty & ~es_ex_ADEM;     //when ld_w ALE happen, we stop write reg_file, when st_w ALE happen, gr_we is down originally 
 assign es_to_ms_bus[33:33] = es_res_from_mem;
 assign es_to_ms_bus[38:34] = es_dest;
 assign es_to_ms_bus[70:39] = es_calcu_result;
@@ -277,7 +251,6 @@ assign es_to_ms_bus[218:218] = s1_found;    //tlbsrch got
 assign es_to_ms_bus[222:219] = s1_index;    //tlbsrch index
 
 assign es_to_ms_bus[227:223] = es_inst_invtlb_op;
-<<<<<<< HEAD
 assign es_to_ms_bus[228:228] = es_tlb_zombie;
 
 assign es_to_ms_bus[238:229] = es_rj_value[9:0];
@@ -291,8 +264,9 @@ assign es_to_ms_bus[243:243] = es_ex_load_invalid;
 assign es_to_ms_bus[244:244] = es_ex_store_invalid;
 assign es_to_ms_bus[245:245] = es_ex_loadstore_plv_invalid;
 assign es_to_ms_bus[246:246] = es_ex_store_dirty;
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+
+//ADEM exception
+assign es_to_ms_bus[247:247] = es_ex_ADEM;
 
 /*-------------------------------------------------------*/
 
@@ -434,16 +408,11 @@ reg es_valid;
 
 wire es_ready_go;
 
-<<<<<<< HEAD
 assign es_ready_go = if_es_ex ? 1'b1 : 
-                      //es_inst_tlbsrch ? (if_ms_crush_with_tlbsrch ? 1'b0 : 1'b1) :   //tlb add
+                      //es_inst_tlbsrch ? ((if_ms_crush_with_tlbsrch | if_ws_crush_with_tlbsrch) ? 1'b0 : 1'b1) :   //tlb add
                      (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
                      (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
 
-=======
-assign es_ready_go = if_es_ex ? 1'b1 : (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
-                     (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign es_allow_in = !es_valid || es_ready_go && ms_allow_in;
 assign es_to_ms_valid = es_valid && es_ready_go;
 
@@ -489,20 +458,16 @@ assign if_lh_and_sh = (es_res_from_mem && (es_ld_op[3] || es_ld_op[4])) || (es_m
 
 assign es_ex_ALE = ((if_lw_and_sw && (es_unaligned_addr[1] | es_unaligned_addr[0]))
                     || (if_lh_and_sh && es_unaligned_addr[0])) && es_valid ;
+//maybe have problem
+wire es_ex_ADEM;
+assign es_ex_ADEM = if_ppt && (plv ==3) &&(es_res_from_mem||es_mem_we)?es_alu_result[31]:1'b0;
 
 wire if_es_ex;
-<<<<<<< HEAD
 assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break || es_has_int 
                 || es_ex_fetch_tlb_refill || es_ex_inst_invalid || es_ex_fetch_plv_invalid
                 || es_ex_loadstore_tlb_fill || es_ex_load_invalid || es_ex_store_invalid
-                || es_ex_loadstore_plv_invalid || es_ex_store_dirty;
-=======
-assign if_es_ex = es_ex_syscall || es_ertn_flush || es_ex_ADEF || es_ex_ALE || es_ex_INE || es_ex_break || es_has_int;
+                || es_ex_loadstore_plv_invalid || es_ex_store_dirty || es_ex_ADEM;
 
-/*
-assign if_ms_ex = ms_ex_syscall || ms_ertn_flush || ms_ex_ADEF || ms_ex_INE || ms_ex_ALE || ms_ex_break || ms_has_int;
-*/
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*
     output              data_sram_req,
@@ -531,7 +496,6 @@ assign data_sram_wstrb = es_st_op[0] ? 4'b1111 :
                                 es_unaligned_addr==2'b10 ? 4'b0100 : 4'b1000) : 
                          es_st_op[2] ? (es_unaligned_addr[1] ? 4'b1100 : 4'b0011) : 4'b0000;
 
-<<<<<<< HEAD
 /*----------------------------------------------------------------------*/
 
 wire [31:0] address_dt;     //dt --> directly translate
@@ -569,7 +533,7 @@ assign address_p = if_dt ? address_dt : if_indt ?
 2: es_ex_load_invalid           load操作页无效例外
 3: es_ex_store_invalid          store操作页无效例外
 4: es_ex_loadstore_plv_invalid  页特权等级不合规例外
-5：ex_ex_store_dirty               页修改例外  
+5：es_ex_store_dirty               页修改例外  
 */
 
 wire es_ex_loadstore_tlb_fill;
@@ -586,15 +550,14 @@ assign es_ex_load_invalid = if_ppt & es_res_from_mem & s1_found & ~s1_v;
 assign es_ex_store_invalid = if_ppt & es_mem_we & s1_found & ~s1_v;
 assign es_ex_loadstore_plv_invalid = if_ppt & (es_res_from_mem | es_mem_we) & s1_found
                                     & s1_v & (plv > s1_plv);
-assign es_ex_store_dirty = if_ppt & es_mem_we & s1_found & s1_v *& (plv <= s1_plv) & ~s1_d;
+assign es_ex_store_dirty = if_ppt & es_mem_we & s1_found & s1_v & ~s1_d & 
+                            (plv == 2'b00 || (plv == 2'b01 &&(s1_plv == 2'b01 || s1_plv == 2'b10 || s1_plv == 2'b11)) ||
+                            (plv == 2'b10 &&( s1_plv == 2'b10 || s1_plv == 2'b11)) ||
+                            (plv == 2'b11 &&(s1_plv == 2'b11)) );
 
 /*----------------------------------------------------------------------*/
 
 assign data_sram_addr  = address_p;
-=======
-//assign data_sram_addr  = {es_alu_result[31:2],2'b00};
-assign data_sram_addr  = es_alu_result;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign data_sram_wdata = real_wdata;        
 /*--------------------------------------------------------*/
 

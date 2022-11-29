@@ -1,22 +1,15 @@
 `define WIDTH_BR_BUS       35
-<<<<<<< HEAD
 `define WIDTH_FS_TO_DS_BUS 69
 `define WIDTH_DS_TO_ES_BUS 249
-`define WIDTH_ES_TO_MS_BUS 247
-`define WIDTH_MS_TO_WS_BUS 238
-=======
-`define WIDTH_FS_TO_DS_BUS 65
-`define WIDTH_DS_TO_ES_BUS 245
-`define WIDTH_ES_TO_MS_BUS 228
-`define WIDTH_MS_TO_WS_BUS 219
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+`define WIDTH_ES_TO_MS_BUS 248
+`define WIDTH_MS_TO_WS_BUS 239
 `define WIDTH_WS_TO_DS_BUS 55
 `define WIDTH_ES_TO_DS_BUS 56
 `define WIDTH_MS_TO_DS_BUS 57
 
 `define WIDTH_CSR_NUM 14
 
-//å¯„å­˜å™¨å·
+//¼Ä´æÆ÷ºÅ
 `define CSR_CRMD 14'h0
 `define CSR_PRMD 14'h1
 `define CSR_ECFG 14'h4
@@ -39,13 +32,10 @@
 `define CSR_TICLR 14'h44
 `define CSR_TLBRENTRY 14'h88
 
-<<<<<<< HEAD
 `define CSR_DMW0 14'h180
 `define CSR_DMW1 14'h181
 
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
-//CSRåˆ†åŒº
+//CSR·ÖÇø
 
 //CSR_CRMD
 `define CSR_CRMD_PLV 1:0
@@ -140,22 +130,22 @@
 `define ESUBCODE_TLBR 9'h0
 
 //TLB
-//é•¿åº¦ä¸º4ï¼Œåˆ™TLBæœ‰2 ^ 4 = 16é¡¹
+//³¤¶ÈÎª4£¬ÔòTLBÓĞ2 ^ 4 = 16Ïî
 `define TLB_LEN 4   
 
-//TLBIDX (TLBç´¢å¼•)
+//TLBIDX (TLBË÷Òı)
 `define TLBIDX_INDEX    3:0
 `define TLBIDX_ZERO1    23:4
 `define TLBIDX_PS       29:24
 `define TLBIDX_ZERO2    30:30
 `define TLBIDX_NE       31:31
 
-//TLBEHI (TLBè¡¨é¡¹é«˜ä½)
+//TLBEHI (TLB±íÏî¸ßÎ»)
 `define TLBEHI_ZERO     12:0
 `define TLBEHI_VPPN     31:13
 
-//TLBELO0, TLBELO1 (TLBè¡¨é¡¹ä½ä½)
-//è¿™ä¸¤ä¸ªå¯„å­˜å™¨åˆ†åˆ«å¯¹åº”åŒé¡µä¸­çš„å¶æ•°é¡µå’Œå¥‡æ•°é¡µï¼Œç»“æ„å®Œå…¨ç›¸åŒ
+//TLBELO0, TLBELO1 (TLB±íÏîµÍÎ»)
+//ÕâÁ½¸ö¼Ä´æÆ÷·Ö±ğ¶ÔÓ¦Ë«Ò³ÖĞµÄÅ¼ÊıÒ³ºÍÆæÊıÒ³£¬½á¹¹ÍêÈ«ÏàÍ¬
 `define TLBELO_V        0:0
 `define TLBELO_D        1:1
 `define TLBELO_PLV      3:2
@@ -165,17 +155,17 @@
 `define TLBELO_PPN      27:8
 `define TLBELO_ZERO2    31:28
 
-//ASID (åœ°å€ç©ºé—´æ ‡è¯†ç¬¦)
+//ASID (µØÖ·¿Õ¼ä±êÊ¶·û)
 `define ASID_ASID       9:0
 `define ASID_ZERO1      15:10
 `define ASID_ASIDBITS   23:16
 `define ASID_ZERO2      31:24
 
-//TLBRENTRY (TLBé‡å¡«ä¾‹å¤–å…¥å£åœ°å€ï¼‰
+//TLBRENTRY (TLBÖØÌîÀıÍâÈë¿ÚµØÖ·£©
 `define TLBRENTRY_LOW   5:0     //only read
 `define TLBRENTRY_HIGH  31:6    //read and write
 
-//DMW0,DMW1 (ç›´æ¥æ˜ å°„é…ç½®çª—å£)
+//DMW0,DMW1 (Ö±½ÓÓ³ÉäÅäÖÃ´°¿Ú)
 `define DMW_PLV0        0:0
 `define DMW_ZERO1       2:1
 `define DMW_PLV3        3:3

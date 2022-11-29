@@ -87,13 +87,8 @@ always @(posedge clk)
             es_to_ms_bus_reg <= 0;
         else if(es_to_ms_valid && ms_allow_in)
             es_to_ms_bus_reg <= es_to_ms_bus;
-<<<<<<< HEAD
         //else if(~ms_mem_we & ~ms_res_from_mem)
             //es_to_ms_bus_reg <= 0;
-=======
-        else if(~ms_mem_we & ~ms_res_from_mem)
-            es_to_ms_bus_reg <= 0;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     end 
 
 assign {ms_ex_ADEM, ms_ex_store_dirty, ms_ex_loadstore_plv_invalid, ms_ex_store_invalid,

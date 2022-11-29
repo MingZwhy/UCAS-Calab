@@ -409,11 +409,7 @@ reg es_valid;
 wire es_ready_go;
 
 assign es_ready_go = if_es_ex ? 1'b1 : 
-<<<<<<< HEAD
                       //es_inst_tlbsrch ? ((if_ms_crush_with_tlbsrch | if_ws_crush_with_tlbsrch) ? 1'b0 : 1'b1) :   //tlb add
-=======
-                      es_inst_tlbsrch ? ((if_ms_crush_with_tlbsrch | if_ws_crush_with_tlbsrch) ? 1'b0 : 1'b1) :   //tlb add
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
                      (es_mem_we || es_res_from_mem) ? (data_sram_req && data_sram_addr_ok) : 
                      (!es_need_wait_div || (signed_out_tvalid || unsigned_out_tvalid));
 
@@ -554,14 +550,10 @@ assign es_ex_load_invalid = if_ppt & es_res_from_mem & s1_found & ~s1_v;
 assign es_ex_store_invalid = if_ppt & es_mem_we & s1_found & ~s1_v;
 assign es_ex_loadstore_plv_invalid = if_ppt & (es_res_from_mem | es_mem_we) & s1_found
                                     & s1_v & (plv > s1_plv);
-<<<<<<< HEAD
 assign es_ex_store_dirty = if_ppt & es_mem_we & s1_found & s1_v & ~s1_d & 
                             (plv == 2'b00 || (plv == 2'b01 &&(s1_plv == 2'b01 || s1_plv == 2'b10 || s1_plv == 2'b11)) ||
                             (plv == 2'b10 &&( s1_plv == 2'b10 || s1_plv == 2'b11)) ||
                             (plv == 2'b11 &&(s1_plv == 2'b11)) );
-=======
-assign es_ex_store_dirty = if_ppt & es_mem_we & s1_found & s1_v *& (plv <= s1_plv) & ~s1_d;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 /*----------------------------------------------------------------------*/
 

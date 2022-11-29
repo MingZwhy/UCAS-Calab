@@ -68,10 +68,7 @@ wire                      csr_re;
 wire [31:0]               csr_rvalue;
 wire [31:0]               ertn_pc;
 wire [31:0]               ex_entry;
-<<<<<<< HEAD
 wire [31:0]               ex_tlbentry;
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 wire                      csr_we;
 wire [31:0]               csr_wvalue;
@@ -83,6 +80,8 @@ wire                      ertn_flush;
 wire [5:0]                wb_ecode;
 wire [8:0]                wb_esubcode;
 wire [31:0]               wb_vaddr;
+wire                      if_fetch_plv_ex;
+wire                      if_fetch_tlb_refill;
 wire [31:0]               coreid_in;
 
 wire                      has_int;
@@ -118,7 +117,6 @@ wire                         s1_v;
 // invtlb opcode
 wire                         invtlb_valid;
 wire [4:0]                   invtlb_op;
-wire                         invtlb_no_g;
 
 // write port
 wire                         we;  //w(rite) e(nable)
@@ -193,7 +191,6 @@ wire [19:0] tlbelo1_ppn;
 //5:ASID
 wire [9:0]  tlbasid_asid;
 
-<<<<<<< HEAD
 //6:DMW
 wire        tlbdmw0_plv0;
 wire        tlbdmw0_plv3;
@@ -218,8 +215,6 @@ wire [1:0] crmd_datm;
 
 /*-----------------------------guchaoyang----------------------------*/
 wire [5:0] stat_ecode;
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 /*--------------------------------------------------------------------*/
 
 /*-------------------------for specific inst--------------------------*/
@@ -255,10 +250,10 @@ wire [9:0]  tlbrd_asid_asid;
 
 /*--------------------------------------------------------------------*/
 
-<<<<<<< HEAD
 /*-------------------------for deal with crush--------------------------*/
 
 wire if_ms_crush_with_tlbsrch;
+wire if_ws_crush_with_tlbsrch;
 
 wire tlb_zombie;
 
@@ -267,8 +262,6 @@ wire [31:0] tlb_reflush_pc;
 
 wire ex_tlb_refill;
 
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 //global timer counter (64bit)
 reg [63:0] global_time_cnt;
 
@@ -291,10 +284,7 @@ stage1_IF fetch(
     .ertn_flush         (ertn_flush),
     .ertn_pc            (ertn_pc),
     .ex_entry           (ex_entry),
-<<<<<<< HEAD
     .ex_tlbentry        (ex_tlbentry),
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
     .wb_ex              (wb_ex),
 
     .ds_allow_in        (ds_allow_in),
@@ -310,7 +300,6 @@ stage1_IF fetch(
     .inst_sram_wdata    (inst_sram_wdata),
     .inst_sram_addr_ok  (inst_sram_addr_ok),
     .inst_sram_data_ok  (inst_sram_data_ok),
-<<<<<<< HEAD
     .inst_sram_rdata    (inst_sram_rdata),
 
     .tlb_zombie         (tlb_zombie),
@@ -347,9 +336,6 @@ stage1_IF fetch(
     .s0_v               (s0_v),
 
     .in_ex_tlb_refill  (ex_tlb_refill)
-=======
-    .inst_sram_rdata    (inst_sram_rdata)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 /*----------------------------------------------------------*/
@@ -379,14 +365,10 @@ stage2_ID decode(
     .es_to_ds_bus       (es_to_ds_bus),
     .ms_to_ds_bus       (ms_to_ds_bus),
 
-<<<<<<< HEAD
     .data_sram_data_ok  (data_sram_data_ok),
 
     .tlb_zombie         (tlb_zombie),
     .tlb_reflush        (tlb_reflush)
-=======
-    .data_sram_data_ok  (data_sram_data_ok)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 /*----------------------------------------------------------*/
@@ -434,11 +416,10 @@ stage3_EX ex(
     //for tlbsrch
     .tlbehi_vppn        (tlbehi_vppn),
     .tlbasid_asid       (tlbasid_asid),
-<<<<<<< HEAD
-    .invtlb_no_g        (invtlb_no_g),
 
     //for tlb crush
     .if_ms_crush_with_tlbsrch (if_ms_crush_with_tlbsrch),
+    .if_ws_crush_with_tlbsrch (if_ws_crush_with_tlbsrch),
     .tlb_reflush        (tlb_reflush),
 
     .crmd_da            (crmd_da),
@@ -462,10 +443,10 @@ stage3_EX ex(
     .s1_ppn             (s1_ppn),
     .s1_plv             (s1_plv),
     .s1_d               (s1_d),
-    .s1_v               (s1_v)
-=======
-    .invtlb_no_g        (invtlb_no_g)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+    .s1_v               (s1_v),
+
+    .invtlb_op          (invtlb_op),
+    .invtlb_valid       (invtlb_valid)
 );
 
 /*----------------------------------------------------------*/
@@ -490,16 +471,12 @@ stage4_MEM mem(
     .if_ms_ex           (if_ms_ex),
 
     .data_sram_data_ok  (data_sram_data_ok),
-<<<<<<< HEAD
     .data_sram_rdata    (data_sram_rdata),
 
     //tlb crush
     .if_ms_crush_with_tlbsrch (if_ms_crush_with_tlbsrch),
 
     .tlb_reflush        (tlb_reflush)
-=======
-    .data_sram_rdata    (data_sram_rdata)
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 /*----------------------------------------------------------*/
@@ -535,6 +512,8 @@ stage5_WB wb(
     .wb_ecode           (wb_ecode),
     .wb_esubcode        (wb_esubcode),
     .wb_vaddr           (wb_vaddr),
+    .if_fetch_plv_ex    (if_fetch_plv_ex),
+    .if_fetch_tlb_refill(if_fetch_tlb_refill),
 
     .inst_tlbsrch       (inst_tlbsrch),
     .tlbsrch_got        (tlbsrch_got),
@@ -600,12 +579,9 @@ stage5_WB wb(
 
     .r_ppn1             (r_ppn1),
     .r_plv1             (r_plv1),
-    .r_mat1             (r_plv1),
+    .r_mat1             (r_mat1),
     .r_d1               (r_d1),
     .r_v1               (r_v1),
-
-    .invtlb_op          (invtlb_op),
-    .invtlb_valid       (invtlb_valid),
 
     .tlbrd_tlbelo0_ppn  (tlbrd_tlbelo0_ppn),
     .tlbrd_tlbelo0_g    (tlbrd_tlbelo0_g),
@@ -622,19 +598,16 @@ stage5_WB wb(
     .tlbrd_tlbelo1_v    (tlbrd_tlbelo1_v),
 
     .tlbrd_tlbidx_ps    (tlbrd_tlbidx_ps),
-<<<<<<< HEAD
     .tlbrd_asid_asid    (tlbrd_asid_asid),
 
     .tlb_reflush        (tlb_reflush),
     .tlb_reflush_pc     (tlb_reflush_pc),
 
     .out_ex_tlb_refill  (ex_tlb_refill),
-    .stat_ecode         (stat_ecode)
-=======
-    .tlbrd_asid_asid    (tlbrd_asid_asid)
+    .stat_ecode         (stat_ecode),
 
-
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+    //crush with tlbsrch
+    .if_ws_crush_with_tlbsrch   (if_ws_crush_with_tlbsrch)
 );
 
 /*----------------------------------------------------------*/
@@ -650,10 +623,7 @@ csr_reg cr(
     .csr_rvalue         (csr_rvalue),
     .ertn_pc            (ertn_pc),
     .ex_entry           (ex_entry),
-<<<<<<< HEAD
     .ex_tlbentry        (ex_tlbentry),
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
     .csr_we             (csr_we),
     .csr_wmask          (csr_wmask),
@@ -665,6 +635,8 @@ csr_reg cr(
     .wb_ecode           (wb_ecode),
     .wb_esubcode        (wb_esubcode), 
     .wb_vaddr           (wb_vaddr),
+    .if_fetch_plv_ex    (if_fetch_plv_ex),
+    .if_fetch_tlb_refill(if_fetch_tlb_refill),
     .coreid_in          (coreid_in),
 
     .has_int            (has_int),
@@ -695,11 +667,7 @@ csr_reg cr(
 
 
     //5:ASID
-<<<<<<< HEAD
     .tlbasid_asid       (tlbasid_asid),
-=======
-    .tlbasid_asid          (tlbasid_asid),
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
     //for tlbsrch
     .inst_tlbsrch       (inst_tlbsrch),
@@ -727,7 +695,6 @@ csr_reg cr(
     .tlbrd_tlbelo1_v    (tlbrd_tlbelo1_v),
 
     .tlbrd_tlbidx_ps    (tlbrd_tlbidx_ps),
-<<<<<<< HEAD
     .tlbrd_asid_asid    (tlbrd_asid_asid),
 
     .ex_tlb_refill      (ex_tlb_refill),
@@ -751,11 +718,6 @@ csr_reg cr(
     .tlbdmw1_vseg       (tlbdmw1_vseg),
 
     .stat_ecode         (stat_ecode)
-=======
-    .tlbrd_asid_asid    (tlbrd_asid_asid)
-
-
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 );
 
 tlb my_tlb(
@@ -786,7 +748,6 @@ tlb my_tlb(
 
     .invtlb_valid           (invtlb_valid),
     .invtlb_op              (invtlb_op),
-    .invtlb_no_g            (invtlb_no_g),
 
     .we                     (we),
     .w_index                (w_index),
@@ -823,7 +784,7 @@ tlb my_tlb(
 
     .r_ppn1                 (r_ppn1),
     .r_plv1                 (r_plv1),
-    .r_mat1                 (r_plv1),
+    .r_mat1                 (r_mat1),
     .r_d1                   (r_d1),
     .r_v1                   (r_v1)
 );

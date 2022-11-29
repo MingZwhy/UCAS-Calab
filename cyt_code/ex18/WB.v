@@ -32,6 +32,8 @@ module stage5_WB(
     output [5:0]                wb_ecode,
     output [8:0]                wb_esubcode,
     output [31:0]               wb_vaddr,
+    output                      if_fetch_plv_ex,
+    output                      if_fetch_tlb_refill,
 
     //tlbsrch
     output                      inst_tlbsrch,
@@ -106,10 +108,6 @@ module stage5_WB(
     input                         r_d1,
     input                         r_v1,
 
-    //for invtlb
-    output [4:0]                invtlb_op,
-    output                      invtlb_valid,
-
     //for tlbrd
     output [19:0]               tlbrd_tlbelo0_ppn,
     output                      tlbrd_tlbelo0_g,
@@ -126,7 +124,6 @@ module stage5_WB(
     output                      tlbrd_tlbelo1_v,
 
     output [5:0]                tlbrd_tlbidx_ps,
-<<<<<<< HEAD
     output [9:0]                tlbrd_asid_asid,
 
     //tlb_reflush
@@ -134,11 +131,10 @@ module stage5_WB(
     output [31:0]               tlb_reflush_pc,
 
     output                      out_ex_tlb_refill,
-    input  [5:0]                stat_ecode
-=======
-    output [9:0]                tlbrd_asid_asid
+    input  [5:0]                stat_ecode,
 
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
+    //tlb crush
+    output                      if_ws_crush_with_tlbsrch
 );
 
 /*-------------------------------tlb---------------------------*/
@@ -166,21 +162,12 @@ always @(posedge clk)
     end
 
 assign we = (ws_inst_tlbwr | ws_inst_tlbfill);
-<<<<<<< HEAD
 assign w_index = ws_inst_invtlb ? tlbsrch_index : ws_inst_tlbwr ? tlbidx_index : random_index;
 assign w_e = (stat_ecode != 6'h3f)? ~tlbidx_ne: 1'b1;
 assign w_vppn = tlbehi_vppn;
 assign w_ps = tlbidx_ps;
 assign w_asid = ws_inst_invtlb ? ws_s1_asid : tlbasid_asid;
 assign w_g = tlbelo0_g && tlbelo1_g;
-=======
-assign w_index = ws_inst_tlbwr ? tlbidx_index : random_index;
-assign w_e = ~tlbidx_ne;
-assign w_vppn = tlbehi_vppn;
-assign w_ps = tlbidx_ps;
-assign w_asid = tlbasid_asid;
-assign w_g = tlbelo0_g && tlbelo1_g;   //??????
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 assign w_ppn0 = tlbelo0_ppn;
 assign w_plv0 = tlbelo0_plv;
@@ -194,13 +181,10 @@ assign w_mat1 = tlbelo1_mat;
 assign w_d1   = tlbelo1_d;
 assign w_v1   = tlbelo1_v;
 
-<<<<<<< HEAD
 //for tlb_zombie
 assign tlb_reflush = ws_tlb_zombie;
 assign tlb_reflush_pc = ws_pc;
 
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 /*-------------------------------------------------------------*/
 
 /*-----------------------receive ms_to_ws_bus----------------*/
@@ -237,7 +221,6 @@ wire        ws_s1_found;
 wire [3:0]  ws_s1_index;
 
 wire [4:0]  ws_inst_invtlb_op;
-<<<<<<< HEAD
 wire        ws_tlb_zombie;
 wire [9:0]  ws_s1_asid;
 
@@ -251,14 +234,14 @@ wire ws_ex_store_invalid;
 wire ws_ex_loadstore_plv_invalid;
 wire ws_ex_store_dirty;
 
+//ADEM exception
+wire        ws_ex_ADEM;
 wire ex_plv_invalid;
 assign ex_plv_invalid = ws_ex_fetch_plv_invalid | ws_ex_loadstore_plv_invalid;
 wire ex_tlb_refill;
 assign ex_tlb_refill = ws_ex_fetch_tlb_refill | ws_ex_loadstore_tlb_fill;
 
 assign out_ex_tlb_refill = ex_tlb_refill;
-=======
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 
 reg [`WIDTH_MS_TO_WS_BUS-1:0] ms_to_ws_bus_reg;
 always @(posedge clk)
@@ -267,22 +250,16 @@ always @(posedge clk)
             ms_to_ws_bus_reg <= 0;
         else if(ms_to_ws_valid && ws_allow_in)
             ms_to_ws_bus_reg <= ms_to_ws_bus;
-<<<<<<< HEAD
         else if((wb_ex || ertn_flush || tlb_reflush) && ws_valid)
             ms_to_ws_bus_reg <= 0;
+        //else
+           // ms_to_ws_bus_reg <= 0;
     end 
 
-assign {ws_ex_store_dirty, ws_ex_loadstore_plv_invalid, ws_ex_store_invalid, ws_ex_load_invalid, ws_ex_loadstore_tlb_fill,
+assign {ws_ex_ADEM, ws_ex_store_dirty, ws_ex_loadstore_plv_invalid, ws_ex_store_invalid, ws_ex_load_invalid, ws_ex_loadstore_tlb_fill,
         ws_ex_fetch_plv_invalid, ws_ex_inst_invalid, ws_ex_fetch_tlb_refill,
         ws_s1_asid, ws_tlb_zombie,
         ws_inst_invtlb_op, ws_s1_index, ws_s1_found, ws_inst_invtlb, ws_inst_tlbfill, ws_inst_tlbwr, ws_inst_tlbrd, ws_inst_tlbsrch,
-=======
-        else if((wb_ex || ertn_flush) && ws_valid)
-            ms_to_ws_bus_reg <= 0;
-    end 
-
-assign {ws_inst_invtlb_op, ws_s1_index, ws_s1_found, ws_inst_invtlb, ws_inst_tlbfill, ws_inst_tlbwr, ws_inst_tlbrd, ws_inst_tlbsrch,
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
         ws_vaddr, ws_has_int, ws_ex_break, ws_ex_ALE, ws_ex_ADEF, ws_ex_INE,
         ws_code, ws_ex_syscall, ws_csr_wvalue, ws_csr, ws_ertn_flush, ws_csr_write, ws_csr_wmask, ws_csr_num,
         ws_final_result, ws_dest,
@@ -300,15 +277,11 @@ assign csr_wvalue = ws_csr_wvalue;
 assign csr_wmask = ws_csr_wmask;
 assign ertn_flush = ws_ertn_flush;
 
-<<<<<<< HEAD
 assign wb_ex = ws_ex_syscall || ws_ex_break || ws_ex_ADEF || ws_ex_ALE || ws_ex_INE || ws_has_int
             || ws_ex_fetch_tlb_refill || ws_ex_inst_invalid || ws_ex_fetch_plv_invalid
             || ws_ex_loadstore_tlb_fill || ws_ex_load_invalid || ws_ex_store_invalid
-            || ws_ex_loadstore_plv_invalid || ws_ex_store_dirty;
+            || ws_ex_loadstore_plv_invalid || ws_ex_store_dirty || ws_ex_ADEM;
 
-=======
-assign wb_ex = ws_ex_syscall || ws_ex_break || ws_ex_ADEF || ws_ex_ALE || ws_ex_INE || ws_has_int;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
 assign wb_pc = ws_pc;
 assign wb_vaddr = ws_vaddr;
 
@@ -317,8 +290,7 @@ assign wb_vaddr = ws_vaddr;
  *in task12, we just finish syscall
  */
 assign wb_ecode = ws_ex_syscall ? 6'hb : ws_ex_break ? 6'hc : 
-<<<<<<< HEAD
-                  ws_ex_ADEF ? 6'h8 : ws_ex_ALE ? 6'h9 : 
+                  ws_ex_ADEF||ws_ex_ADEM ? 6'h8 : ws_ex_ALE ? 6'h9 : 
                   ws_ex_INE ? 6'hd : ws_has_int ? 6'h0 : 
                   ws_ex_load_invalid ? 6'h1 :
                   ws_ex_store_invalid ? 6'h2 :
@@ -327,11 +299,10 @@ assign wb_ecode = ws_ex_syscall ? 6'hb : ws_ex_break ? 6'hc :
                   ex_plv_invalid ? 6'h7 :
                   ex_tlb_refill ? 6'h3f : 6'h0;
 
-=======
-                ws_ex_ADEF ? 6'h8 : ws_ex_ALE ? 6'h9 : 
-                ws_ex_INE ? 6'hd : ws_has_int ? 6'h0 : 6'h0;
->>>>>>> b788e5c246b0be2d6c01cee52f9ba78553896bef
-assign wb_esubcode = 9'h0;   //up to task13, add ex's esubcode are all 0x0
+assign if_fetch_plv_ex = ws_ex_fetch_plv_invalid;
+assign if_fetch_tlb_refill = ws_ex_fetch_tlb_refill;
+
+assign wb_esubcode = ws_ex_ADEM ? 9'h1 :9'h0;   //up to task13, add ex's esubcode are all 0x0
 
 /*-------------------------------------------------------*/
 
@@ -380,8 +351,7 @@ assign debug_wb_rf_wdata = ws_wdata;
 /*-------------------------------------------------------*/
 
 /*-------------------invtlb_op---------------------------*/
-assign invtlb_op = (ws_inst_invtlb)?ws_inst_invtlb_op : 5'h0;
-assign invtlb_valid = ws_inst_invtlb;
+//none
 /*-------------------------------------------------------*/
 
 /*--------------Some Others by Gu Chaoyang---------------*/
@@ -403,4 +373,21 @@ assign tlbrd_tlbelo1_v   = r_v1;
 assign tlbrd_tlbidx_ps   = r_ps;
 assign tlbrd_asid_asid   = r_asid;
 /*-------------------------------------------------------*/
+
+//tlb add
+/*-------------------deliver if_ws_crush_tlbsrch---------------------*/
+wire if_csr_crush_with_tlbsrch;
+
+assign if_csr_crush_with_tlbsrch = ws_csr_write && (ws_csr_num == `CSR_ASID 
+                                                    || ws_csr_num == `CSR_TLBEHI);
+
+wire if_tlbrd_crush_with_tlbsrch;
+
+assign if_tlbrd_crush_with_tlbsrch = ws_inst_tlbrd;
+
+assign if_ws_crush_with_tlbsrch = if_csr_crush_with_tlbsrch
+                                || if_tlbrd_crush_with_tlbsrch;
+
+/*-------------------------------------------------------*/
+
 endmodule
